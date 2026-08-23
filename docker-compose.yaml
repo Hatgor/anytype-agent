@@ -10,5 +10,11 @@ services:
 
   anytype-agent:
     build: .
+    environment:
+      - ANYTYPE_API_URL=http://anytype-cli:31012
+      - ANYTYPE_BOT_NAME=GeminiDevBot
+      - ANYTYPE_API_KEY=CX3NvcW5ofQlmF17BKOGjMnBakMtlj6D7qcH+qep+x0=
+    volumes:
+      - ./src:/app/src
     ports:
       - "31013:31013"
