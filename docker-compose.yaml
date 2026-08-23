@@ -1,0 +1,14 @@
+services:
+  anytype-cli:
+    image: ghcr.io/anyproto/anytype-cli:latest
+    command: ["serve", "--listen-address", "0.0.0.0:31012"]
+    volumes:
+      - ./.anytype/data:/root/.anytype
+      - ./.anytype/config:/root/.config/anytype
+    ports:
+      - "31012:31012"
+
+  anytype-agent:
+    build: .
+    ports:
+      - "31013:31013"
