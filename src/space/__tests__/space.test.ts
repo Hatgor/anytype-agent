@@ -1,15 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { Logger } from "@nestjs/common";
 import { firstValueFrom } from "rxjs";
-import type { AppConfig } from "../../app.config";
-import { AnytypeClient } from "../../client";
+import { AnytypeClient, AnytypeService } from "../../client";
 import { initSpaceOrchestrator, type SpaceContext, SpaceWorker } from "../index";
 
 describe("Space Module", () => {
-  const mockConfig: AppConfig = {
-    ANYTYPE_API_URL: "http://127.0.0.1:31012",
-    ANYTYPE_BOT_NAME: "GeminiBot",
-    ANYTYPE_API_KEY: "secret-token",
-  };
+  const testLogger = new Logger("TestSpaceModule");
+  const createTestClient = () =>
+    new AnytypeClient(testLogger, "http://127.0.0.1:31012", "secret-token");
 
   let fetchSpy: ReturnType<typeof spyOn>;
 
@@ -110,8 +108,9 @@ describe("Space Module", () => {
         return new Response(JSON.stringify({ data: [] }), { status: 200 });
       });
 
-      const client = new AnytypeClient(mockConfig);
-      const events$ = await initSpaceOrchestrator(client, "GeminiBot");
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+      const events$ = await initSpaceOrchestrator(service, "GeminiBot");
 
       expect(events$).toBeDefined();
     });
@@ -158,8 +157,9 @@ describe("Space Module", () => {
         return new Response(JSON.stringify({ data: [] }), { status: 200 });
       });
 
-      const client = new AnytypeClient(mockConfig);
-      const worker = new SpaceWorker(mockContext, client);
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+      const worker = new SpaceWorker(mockContext, service);
 
       const event = await firstValueFrom(worker.observe(50));
 

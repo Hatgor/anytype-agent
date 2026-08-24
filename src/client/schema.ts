@@ -8,7 +8,6 @@ export const MemberRole = Type.Union([
   Type.Literal("owner"),
   Type.Literal("no_permission"),
   Type.Literal("admin"),
-  Type.String(), // Tolerant fallback
 ]);
 export type MemberRole = Static<typeof MemberRole>;
 
@@ -19,7 +18,6 @@ export const MemberStatus = Type.Union([
   Type.Literal("declined"),
   Type.Literal("removing"),
   Type.Literal("canceled"),
-  Type.String(), // Tolerant fallback
 ]);
 export type MemberStatus = Static<typeof MemberStatus>;
 
@@ -34,7 +32,6 @@ export const Color = Type.Union([
   Type.Literal("ice"),
   Type.Literal("teal"),
   Type.Literal("lime"),
-  Type.String(), // Tolerant fallback
 ]);
 export type Color = Static<typeof Color>;
 
@@ -237,7 +234,6 @@ export const ObjectLayout = Type.Union([
   Type.Literal("set"),
   Type.Literal("collection"),
   Type.Literal("participant"),
-  Type.String(), // Tolerant fallback
 ]);
 export type ObjectLayout = Static<typeof ObjectLayout>;
 
@@ -253,7 +249,6 @@ export const PropertyFormat = Type.Union([
   Type.Literal("email"),
   Type.Literal("phone"),
   Type.Literal("objects"),
-  Type.String(), // Tolerant fallback
 ]);
 export type PropertyFormat = Static<typeof PropertyFormat>;
 

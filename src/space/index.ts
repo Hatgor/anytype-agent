@@ -1,5 +1,5 @@
 import { merge, type Observable, of } from "rxjs";
-import type { AnytypeClient } from "../client";
+import type { AnytypeService } from "../client";
 import type { Member, Space } from "../client/schema";
 import type { SpaceContext, SpaceEvent } from "./schema";
 import { SpaceWorker } from "./space.worker";
@@ -14,7 +14,7 @@ export { SpaceWorker };
  */
 //TODO: decouple this to multiple functions, use rxJS flows
 async function setupSpaceContext(
-  client: AnytypeClient,
+  client: AnytypeService,
   space: Space,
   botMember: Member,
 ): Promise<SpaceContext> {
@@ -46,7 +46,7 @@ async function setupSpaceContext(
       );
     } else {
       console.log(
-        `💬 [Space:${space.name}] No matching chat found. Creating new chat "Chat with ${botMember.name}"...`,
+        `💬 [Space:${space.name}] No bot chat found. Creating "Chat with ${botMember.name}"...`,
       );
       const newChat = await client.createChat({
         space_id: space.id,
@@ -55,10 +55,9 @@ async function setupSpaceContext(
       chatId = newChat.id;
       console.log(`✅ [Space:${space.name}] Chat created successfully: ${chatId}`);
     }
-  } catch (err: any) {
-    console.error(
-      `⚠️ [Space:${space.name}] Failed to get/create chat via Chats API: ${err.message}`,
-    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`⚠️ [Space:${space.name}] Failed to get/create chat via Chats API: ${message}`);
     // Fallback: search for chat object in space
     try {
       console.log(
@@ -76,8 +75,9 @@ async function setupSpaceContext(
           `🎯 [Space:${space.name}] Found chat object via fallback search: "${chatObj.name}" (${chatId})`,
         );
       }
-    } catch (fallbackErr: any) {
-      console.error(`❌ [Space:${space.name}] Fallback search failed: ${fallbackErr.message}`);
+    } catch (fallbackErr: unknown) {
+      const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      console.error(`❌ [Space:${space.name}] Fallback search failed: ${fallbackMsg}`);
     }
   }
 
@@ -103,9 +103,10 @@ async function setupSpaceContext(
       });
       agentResponseTypeId = newType.id;
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     console.warn(
-      `⚠️ [Space:${space.name}] Could not verify/create "Agent Response" type: ${err.message}`,
+      `⚠️ [Space:${space.name}] Could not verify/create "Agent Response" type: ${message}`,
     );
   }
 
@@ -126,7 +127,7 @@ async function setupSpaceContext(
  * sets up per-space workers, and returns a merged Observable of all space events.
  */
 export async function initSpaceOrchestrator(
-  client: AnytypeClient,
+  client: AnytypeService,
   botIdentifier: string,
 ): Promise<Observable<SpaceEvent>> {
   console.log(`🌐 [Orchestrator] Scanning spaces for bot: "${botIdentifier}"...`);
@@ -171,8 +172,9 @@ export async function initSpaceOrchestrator(
 
       const context = await setupSpaceContext(client, space, bot);
       validContexts.push(context);
-    } catch (err: any) {
-      console.error(`❌ [Space:${space.name}] Failed to inspect space: ${err.message}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`❌ [Space:${space.name}] Failed to inspect space: ${message}`);
     }
   }
 

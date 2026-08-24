@@ -1,14 +1,25 @@
 import "reflect-metadata";
-import { beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import { validateConfig } from "../app.config";
 
 describe("AppModule & Standalone Bootstrap", () => {
+  let fetchSpy: ReturnType<typeof spyOn>;
+  const originalEnv = { ...process.env };
+
   beforeAll(() => {
     process.env.ANYTYPE_API_URL = "http://127.0.0.1:31012";
     process.env.ANYTYPE_BOT_NAME = "NestBot";
     process.env.ANYTYPE_API_KEY = "nest_key_999";
+    fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ data: [] }), { status: 200 }),
+    );
+  });
+
+  afterAll(() => {
+    fetchSpy?.mockRestore();
+    process.env = originalEnv;
   });
 
   it("validates AppConfig schema via validateConfig", () => {

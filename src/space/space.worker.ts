@@ -1,6 +1,6 @@
 import { defer, from, interval, merge, type Observable, of, timer } from "rxjs";
-import { catchError, filter, map, retry, switchMap, tap } from "rxjs/operators";
-import type { AnytypeClient } from "../client";
+import { catchError, filter, map, retry, switchMap } from "rxjs/operators";
+import type { AnytypeService } from "../client";
 import type { SpaceContext, SpaceEvent } from "./schema";
 
 export * from "./schema";
@@ -8,7 +8,7 @@ export * from "./schema";
 export class SpaceWorker {
   constructor(
     readonly context: SpaceContext,
-    private readonly client: AnytypeClient,
+    private readonly client: AnytypeService,
   ) {}
 
   /**

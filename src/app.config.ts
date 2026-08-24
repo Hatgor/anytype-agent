@@ -11,7 +11,7 @@ export type AppConfig = Static<typeof AppConfig>;
 export function validateConfig(config: Record<string, unknown>): AppConfig {
   try {
     return Value.Parse(AppConfig, config);
-  } catch (err: unknown) {
+  } catch (_err: unknown) {
     const errors = [...Value.Errors(AppConfig, config)]
       .map((e) => `  - ${e.instancePath || "/"}: ${e.message}`)
       .join("\n");

@@ -1,14 +1,20 @@
+import "reflect-metadata";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { Logger } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
+import { NestFactory } from "@nestjs/core";
 import { firstValueFrom } from "rxjs";
-import type { AppConfig } from "../../app.config";
-import { AnytypeClient } from "../index";
+import { Type } from "typebox";
+import { validateConfig } from "../../app.config";
+import { ANYTYPE_CLIENT, AnytypeClient, AnytypeService, ClientModule } from "../index";
 
-describe("AnytypeClient", () => {
-  const mockConfig: AppConfig = {
-    ANYTYPE_API_URL: "http://127.0.0.1:31012/",
-    ANYTYPE_BOT_NAME: "GeminiBot",
-    ANYTYPE_API_KEY: "secret-token-xyz",
-  };
+describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
+  const testLogger = new Logger("TestAnytypeClient");
+  const createTestClient = (
+    baseUrl = "http://127.0.0.1:31012",
+    apiKey = "secret-token-xyz",
+    apiVersion = "2025-11-08",
+  ) => new AnytypeClient(testLogger, baseUrl, apiKey, apiVersion);
 
   let fetchSpy: ReturnType<typeof spyOn>;
 
@@ -20,341 +26,156 @@ describe("AnytypeClient", () => {
     fetchSpy.mockRestore();
   });
 
-  describe("Configuration & Headers", () => {
-    it("should strip trailing slashes from baseUrl", () => {
-      const client = new AnytypeClient(mockConfig);
-      expect(client.baseUrl).toBe("http://127.0.0.1:31012");
-    });
-
-    it("should pass standard headers on requests", async () => {
+  describe("AnytypeClient (Low-Level Transport)", () => {
+    it("normalizes baseUrl and sends standard HTTP headers", async () => {
       fetchSpy.mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            data: [],
-            pagination: { total: 0, offset: 0, limit: 100, has_more: false },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ status: "ok" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
-      const client = new AnytypeClient(mockConfig, "2025-11-08");
-      await client.getSpaces();
+      const client = createTestClient();
+      expect(client.baseUrl).toBe("http://127.0.0.1:31012");
+
+      const res = await client.get(Type.Object({ status: Type.String() }), "/ping");
+      expect(res.status).toBe("ok");
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe("http://127.0.0.1:31012/v1/spaces");
+      expect(url).toBe("http://127.0.0.1:31012/ping");
       expect(init.headers).toEqual({
         "Content-Type": "application/json",
         "Anytype-Version": "2025-11-08",
         Authorization: "Bearer secret-token-xyz",
       });
     });
-  });
 
-  describe("Spaces API", () => {
-    it("getSpaces: validates and returns space list", async () => {
-      const mockResponse = {
-        data: [
-          {
-            id: "space.123",
-            name: "Work Space",
-            description: "Main workspace",
-            network_id: "net.abc",
-            gateway_url: "http://127.0.0.1:47800",
-            icon: { format: "emoji", emoji: "🚀" },
-            object: "anytype.space",
-          },
-        ],
-        pagination: { total: 1, offset: 0, limit: 100, has_more: false },
-      };
+    it("stream: connects to SSE stream and emits raw parsed events", async () => {
+      const ssePayload =
+        'event: message_added\ndata: {"payload":{"message":{"id":"msg1","text":"hello"}}}\n\n';
 
-      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
-
-      const client = new AnytypeClient(mockConfig);
-      const spaces = await client.getSpaces();
-
-      expect(spaces).toHaveLength(1);
-      expect(spaces[0]!.id).toBe("space.123");
-      expect(spaces[0]!.name).toBe("Work Space");
-    });
-
-    it("getSpace: validates and returns single space", async () => {
-      const mockResponse = {
-        space: {
-          id: "space.123",
-          name: "Work Space",
-          icon: null,
-        },
-      };
-
-      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
-
-      const client = new AnytypeClient(mockConfig);
-      const space = await client.getSpace("space.123");
-
-      expect(space.id).toBe("space.123");
-      expect(space.name).toBe("Work Space");
-    });
-  });
-
-  describe("Chats & SSE API", () => {
-    it("getChats: validates and returns chat list", async () => {
-      const mockResponse = {
-        data: [
-          {
-            id: "chat.123",
-            name: "Chat with GeminiBot",
-            space_id: "space1",
-          },
-        ],
-        pagination: { total: 1, offset: 0, limit: 100, has_more: false },
-      };
-
-      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
-
-      const client = new AnytypeClient(mockConfig);
-      const chats = await client.getChats("space1");
-
-      expect(chats).toHaveLength(1);
-      expect(chats[0]!.id).toBe("chat.123");
-    });
-
-    it("subscribeChatMessages: streams and parses SSE events as Observable", async () => {
-      const stream = new ReadableStream({
+      const mockStream = new ReadableStream({
         start(controller) {
-          const encoder = new TextEncoder();
-          controller.enqueue(
-            encoder.encode(
-              `data: {"id":"msg1","text":"Hello bot!","author_id":"user1","created_at":1700000000}\n\n`,
-            ),
-          );
+          controller.enqueue(new TextEncoder().encode(ssePayload));
           controller.close();
         },
       });
 
       fetchSpy.mockResolvedValue(
-        new Response(stream, {
+        new Response(mockStream, {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         }),
       );
 
-      const client = new AnytypeClient(mockConfig);
-      const rawEvent = await firstValueFrom(client.subscribeChatMessages("space1", "chat1"));
+      const client = createTestClient();
+      const stream$ = client.stream("/v1/events/stream");
 
-      expect(rawEvent.data.id).toBe("msg1");
-      expect(rawEvent.data.text).toBe("Hello bot!");
-      expect(rawEvent.data.author_id).toBe("user1");
-    });
-  });
+      const event = await firstValueFrom(stream$);
 
-  describe("Members & Permissions API", () => {
-    it("getMembers: validates and returns member list with roles", async () => {
-      const mockResponse = {
-        data: [
-          {
-            id: "_participant_space1_user1",
-            identity: "identity-1",
-            name: "Andrii",
-            role: "owner",
-            status: "active",
-            global_name: "andrii.any",
-            icon: null,
-          },
-          {
-            id: "_participant_space1_bot1",
-            identity: "identity-bot",
-            name: "GeminiBot",
-            role: "editor",
-            status: "active",
-            icon: null,
-          },
-        ],
-        pagination: { total: 2, offset: 0, limit: 100, has_more: false },
-      };
-
-      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
-
-      const client = new AnytypeClient(mockConfig);
-      const members = await client.getMembers("space1");
-
-      expect(members).toHaveLength(2);
-      expect(members[0]!.role).toBe("owner");
-      expect(members[1]!.role).toBe("editor");
-      expect(members[1]!.name).toBe("GeminiBot");
+      expect(event.event).toBe("message_added");
+      const eventData = event.data as { payload?: { message?: { text?: string } } };
+      expect(eventData?.payload?.message?.text).toBe("hello");
     });
 
-    it("getMember: validates and returns single member", async () => {
-      const mockResponse = {
-        member: {
-          id: "_participant_space1_bot1",
-          identity: "identity-bot",
-          name: "GeminiBot",
-          role: "editor",
-          status: "active",
-        },
-      };
-
-      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
-
-      const client = new AnytypeClient(mockConfig);
-      const member = await client.getMember("space1", "member1");
-
-      expect(member.id).toBe("_participant_space1_bot1");
-      expect(member.role).toBe("editor");
-    });
-  });
-
-  describe("Types API", () => {
-    it("getTypes: validates and returns types list", async () => {
-      const mockResponse = {
-        data: [
-          {
-            id: "type.task",
-            key: "task",
-            name: "Task",
-            plural_name: "Tasks",
-            layout: "action",
-            archived: false,
-            properties: [
-              { key: "status", name: "Status", format: "select" },
-              { key: "done", name: "Done", format: "checkbox" },
-            ],
-          },
-        ],
-        pagination: { total: 1, offset: 0, limit: 100, has_more: false },
-      };
-
-      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
-
-      const client = new AnytypeClient(mockConfig);
-      const types = await client.getTypes("space1");
-
-      expect(types).toHaveLength(1);
-      expect(types[0]!.key).toBe("task");
-      expect(types[0]!.properties).toHaveLength(2);
-    });
-
-    it("createType: sends POST request and validates created type response", async () => {
-      const mockCreated = {
-        type: {
-          id: "type.agent_response",
-          key: "agent_response",
-          name: "Agent Response",
-          plural_name: "Agent Responses",
-          layout: "note",
-        },
-      };
-
-      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockCreated), { status: 201 }));
-
-      const client = new AnytypeClient(mockConfig);
-      const created = await client.createType({
-        space_id: "space1",
-        name: "Agent Response",
-        plural_name: "Agent Responses",
-        layout: "note",
-        key: "agent_response",
-      });
-
-      expect(created.id).toBe("type.agent_response");
-      expect(created.name).toBe("Agent Response");
-
-      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space1/types");
-      expect(init.method).toBe("POST");
-      expect(JSON.parse(init.body as string)).toEqual({
-        space_id: "space1",
-        name: "Agent Response",
-        plural_name: "Agent Responses",
-        layout: "note",
-        key: "agent_response",
-      });
-    });
-  });
-
-  describe("Validation & Error Handling", () => {
-    it("throws detailed error when response does not match TypeBox schema", async () => {
-      const invalidResponse = {
-        data: [
-          {
-            id: "_participant_1",
-            identity: "id-1",
-            role: "invalid_super_role",
-            status: "active",
-          },
-        ],
-      };
-
-      fetchSpy.mockResolvedValue(new Response(JSON.stringify(invalidResponse), { status: 200 }));
-
-      const client = new AnytypeClient(mockConfig);
-
-      await expect(client.getMembers("space1")).rejects.toThrow(
-        /Schema validation failed for \/v1\/spaces\/space1\/members/,
-      );
-    });
-
-    it("throws HTTP error when status is not 2xx", async () => {
-      fetchSpy.mockResolvedValue(
-        new Response("Unauthorized: Invalid token", {
-          status: 401,
-          statusText: "Unauthorized",
-        }),
-      );
-
-      const client = new AnytypeClient(mockConfig);
-
-      await expect(client.getSpaces()).rejects.toThrow(
-        /\[AnytypeClient HTTP 401\] GET \/v1\/spaces: Unauthorized: Invalid token/,
-      );
-    });
-
-    it("throws connection error on network failure", async () => {
-      fetchSpy.mockRejectedValue(new Error("Connection refused (ECONNREFUSED)"));
-
-      const client = new AnytypeClient(mockConfig);
-
-      await expect(client.getSpaces()).rejects.toThrow(
-        /Connection failed to http:\/\/127.0.0.1:31012\/v1\/spaces: Connection refused/,
-      );
-    });
-  });
-
-  describe("waitForReady (RxJS Pipeline)", () => {
-    it("resolves immediately when API is healthy on first attempt", async () => {
+    it("checkHealth: succeeds when endpoint responds with 200", async () => {
       fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: [] }), { status: 200 }));
 
-      const client = new AnytypeClient(mockConfig);
-      await client.waitForReady(3, 10);
-
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const client = createTestClient();
+      await expect(client.checkHealth("/v1/spaces", 3, 10)).resolves.toBeUndefined();
     });
 
-    it("retries with delay and succeeds after initial failures", async () => {
-      let callCount = 0;
-      fetchSpy.mockImplementation(async () => {
-        callCount++;
-        if (callCount < 3) {
-          throw new Error("Connection refused");
-        }
-        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    it("checkHealth: fails immediately without retries on 401 Unauthorized", async () => {
+      fetchSpy.mockResolvedValue(
+        new Response("Unauthorized", { status: 401, statusText: "Unauthorized" }),
+      );
+
+      const client = createTestClient();
+      await expect(client.checkHealth("/v1/spaces", 5, 10)).rejects.toThrow(
+        "Authentication failed with status 401",
+      );
+      expect(fetchSpy).toHaveBeenCalledTimes(1); // No wasteful retries on bad credentials
+    });
+  });
+
+  describe("AnytypeService (Domain API Facade)", () => {
+    it("getSpaces: fetches spaces list through client", async () => {
+      fetchSpy.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: [{ id: "space.1", name: "Test Space" }],
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const spaces = await service.getSpaces();
+      expect(spaces).toHaveLength(1);
+      expect(spaces[0]?.name).toBe("Test Space");
+    });
+
+    it("addChatMessage: sends only message payload to correct chat endpoint", async () => {
+      fetchSpy.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            message: { id: "msg_123", text: "Hi from bot" },
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const msg = await service.addChatMessage({
+        space_id: "space_99",
+        chat_id: "chat_42",
+        text: "Hi from bot",
       });
 
-      const client = new AnytypeClient(mockConfig);
-      await client.waitForReady(5, 10);
-
-      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      expect(msg.id).toBe("msg_123");
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space_99/chats/chat_42/messages");
+      expect(JSON.parse(init.body as string)).toEqual({
+        text: "Hi from bot",
+      });
     });
+  });
 
-    it("throws error when max attempts are exceeded", async () => {
-      fetchSpy.mockRejectedValue(new Error("Connection refused"));
+  describe("ClientModule DI with Async Factory Provider", () => {
+    it("bootstraps ClientModule, performs healthcheck in useFactory, and provides ANYTYPE_CLIENT & AnytypeService", async () => {
+      process.env.ANYTYPE_API_URL = "http://127.0.0.1:31012";
+      process.env.ANYTYPE_BOT_NAME = "Bot";
+      process.env.ANYTYPE_API_KEY = "token123";
 
-      const client = new AnytypeClient(mockConfig);
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: [] }), { status: 200 }));
 
-      await expect(client.waitForReady(3, 10)).rejects.toThrow(
-        /API at http:\/\/127.0.0.1:31012 is still unreachable after 3 attempts/,
+      const app = await NestFactory.createApplicationContext(
+        {
+          module: class TestAppModule {},
+          imports: [
+            ConfigModule.forRoot({
+              isGlobal: true,
+              validate: validateConfig,
+            }),
+            ClientModule,
+          ],
+        },
+        { logger: false },
       );
+
+      const client = app.get<AnytypeClient>(ANYTYPE_CLIENT);
+      const service = app.get(AnytypeService);
+
+      expect(client).toBeInstanceOf(AnytypeClient);
+      expect(service).toBeInstanceOf(AnytypeService);
+      expect(client.baseUrl).toBe("http://127.0.0.1:31012");
+
+      await app.close();
     });
   });
 });
