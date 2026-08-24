@@ -16,5 +16,7 @@ services:
       - ANYTYPE_API_KEY=CX3NvcW5ofQlmF17BKOGjMnBakMtlj6D7qcH+qep+x0=
     volumes:
       - ./src:/app/src
+    depends_on:
+      - anytype-cli
     ports:
       - "31013:31013"

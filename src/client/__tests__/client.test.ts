@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { firstValueFrom } from "rxjs";
 import { AnytypeClient } from "../index";
 import type { AppConfig } from "../../config/schema";
 
@@ -97,6 +98,59 @@ describe("AnytypeClient", () => {
 
       expect(space.id).toBe("space.123");
       expect(space.name).toBe("Work Space");
+    });
+  });
+
+  describe("Chats & SSE API", () => {
+    it("getChats: validates and returns chat list", async () => {
+      const mockResponse = {
+        data: [
+          {
+            id: "chat.123",
+            name: "Chat with GeminiBot",
+            space_id: "space1",
+          },
+        ],
+        pagination: { total: 1, offset: 0, limit: 100, has_more: false },
+      };
+
+      fetchSpy.mockResolvedValue(
+        new Response(JSON.stringify(mockResponse), { status: 200 })
+      );
+
+      const client = new AnytypeClient(mockConfig);
+      const chats = await client.getChats("space1");
+
+      expect(chats).toHaveLength(1);
+      expect(chats[0]!.id).toBe("chat.123");
+    });
+
+    it("subscribeChatMessages: streams and parses SSE events as Observable", async () => {
+      const stream = new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(
+            encoder.encode(
+              `data: {"id":"msg1","text":"Hello bot!","author_id":"user1","created_at":1700000000}\n\n`
+            )
+          );
+          controller.close();
+        },
+      });
+
+      fetchSpy.mockResolvedValue(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      );
+
+      const client = new AnytypeClient(mockConfig);
+      const rawEvent = await firstValueFrom(client.subscribeChatMessages("space1", "chat1"));
+
+      expect(rawEvent.data.id).toBe("msg1");
+      expect(rawEvent.data.text).toBe("Hello bot!");
+      expect(rawEvent.data.author_id).toBe("user1");
     });
   });
 
@@ -235,14 +289,12 @@ describe("AnytypeClient", () => {
 
   describe("Validation & Error Handling", () => {
     it("throws detailed error when response does not match TypeBox schema", async () => {
-      // Missing required field 'name' and invalid enum 'role'
       const invalidResponse = {
         data: [
           {
             id: "_participant_1",
             identity: "id-1",
-            // missing 'name'
-            role: "invalid_super_role", // invalid role enum
+            role: "invalid_super_role",
             status: "active",
           },
         ],
@@ -281,6 +333,45 @@ describe("AnytypeClient", () => {
 
       await expect(client.getSpaces()).rejects.toThrow(
         /Connection failed to http:\/\/127.0.0.1:31012\/v1\/spaces: Connection refused/
+      );
+    });
+  });
+
+  describe("waitForReady (RxJS Pipeline)", () => {
+    it("resolves immediately when API is healthy on first attempt", async () => {
+      fetchSpy.mockResolvedValue(
+        new Response(JSON.stringify({ data: [] }), { status: 200 })
+      );
+
+      const client = new AnytypeClient(mockConfig);
+      await client.waitForReady(3, 10);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries with delay and succeeds after initial failures", async () => {
+      let callCount = 0;
+      fetchSpy.mockImplementation(async () => {
+        callCount++;
+        if (callCount < 3) {
+          throw new Error("Connection refused");
+        }
+        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+      });
+
+      const client = new AnytypeClient(mockConfig);
+      await client.waitForReady(5, 10);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it("throws error when max attempts are exceeded", async () => {
+      fetchSpy.mockRejectedValue(new Error("Connection refused"));
+
+      const client = new AnytypeClient(mockConfig);
+
+      await expect(client.waitForReady(3, 10)).rejects.toThrow(
+        /API at http:\/\/127.0.0.1:31012 is still unreachable after 3 attempts/
       );
     });
   });

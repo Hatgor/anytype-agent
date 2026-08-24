@@ -6,10 +6,15 @@
   "devDependencies": {
     "@types/bun": "latest"
   },
+  "scripts": {
+    "start": "bun ./src/index.ts",
+    "dev": "bun ./src/index.ts --watch"
+  },
   "peerDependencies": {
     "typescript": "^7"
   },
   "dependencies": {
+    "eventsource-parser": "^4.1.0",
     "rxjs": "^7.8.2",
     "typebox": "^1.3.17"
   }

@@ -103,6 +103,67 @@ export const MemberResponse = Type.Object({
 });
 export type MemberResponse = Static<typeof MemberResponse>;
 
+// --- Chat Schemas ---
+
+export const Chat = Type.Object({
+  id: Type.String(),
+  name: Type.Optional(Type.String()),
+  space_id: Type.Optional(Type.String()),
+  snippet: Type.Optional(Type.String()),
+  layout: Type.Optional(Type.String()),
+  archived: Type.Optional(Type.Boolean()),
+  icon: Type.Optional(Type.Union([Icon, Type.Null()])),
+  object: Type.Optional(Type.String()),
+}, { additionalProperties: true });
+export type Chat = Static<typeof Chat>;
+
+export const ChatsResponse = Type.Object({
+  data: Type.Array(Chat),
+  pagination: Type.Optional(PaginationMeta),
+}, { additionalProperties: true });
+export type ChatsResponse = Static<typeof ChatsResponse>;
+
+export const ChatResponse = Type.Object({
+  chat: Chat,
+}, { additionalProperties: true });
+export type ChatResponse = Static<typeof ChatResponse>;
+
+export const CreateChatRequest = Type.Object({
+  space_id: Type.String(),
+  name: Type.String(),
+  icon: Type.Optional(Icon),
+});
+export type CreateChatRequest = Static<typeof CreateChatRequest>;
+
+export const ChatMessage = Type.Object({
+  id: Type.String(),
+  text: Type.String(),
+  author_id: Type.Optional(Type.String()),
+  creator: Type.Optional(Type.String()),
+  created_at: Type.Optional(Type.Union([Type.String(), Type.Number()])),
+  reply_to_message_id: Type.Optional(Type.String()),
+}, { additionalProperties: true });
+export type ChatMessage = Static<typeof ChatMessage>;
+
+export const ChatMessagesResponse = Type.Object({
+  data: Type.Array(ChatMessage),
+  pagination: Type.Optional(PaginationMeta),
+});
+export type ChatMessagesResponse = Static<typeof ChatMessagesResponse>;
+
+export const ChatMessageResponse = Type.Object({
+  message: ChatMessage,
+});
+export type ChatMessageResponse = Static<typeof ChatMessageResponse>;
+
+export const AddChatMessageRequest = Type.Object({
+  space_id: Type.String(),
+  chat_id: Type.String(),
+  text: Type.String(),
+  reply_to_message_id: Type.Optional(Type.String()),
+});
+export type AddChatMessageRequest = Static<typeof AddChatMessageRequest>;
+
 // --- Type Schemas ---
 
 export const ObjectLayout = Type.Union([
@@ -176,16 +237,44 @@ export const CreateTypeRequest = Type.Object({
 });
 export type CreateTypeRequest = Static<typeof CreateTypeRequest>;
 
-// --- App Context (Init output) ---
+// --- Object & Search Schemas ---
 
-export const AppContext = Type.Object({
-  apiUrl: Type.String(),
-  spaceId: Type.String(),
-  spaceName: Type.String(),
-  botMemberId: Type.String(),
-  botIdentity: Type.String(),
-  botName: Type.String(),
-  botRole: MemberRole,
-  agentResponseTypeId: Type.Optional(Type.String()),
+export const AnytypeObject = Type.Object({
+  id: Type.String(),
+  name: Type.Optional(Type.String()),
+  snippet: Type.Optional(Type.String()),
+  layout: Type.Optional(Type.String()),
+  space_id: Type.Optional(Type.String()),
+  archived: Type.Optional(Type.Boolean()),
+  object: Type.Optional(Type.String()),
 });
-export type AppContext = Static<typeof AppContext>;
+export type AnytypeObject = Static<typeof AnytypeObject>;
+
+export const ObjectsResponse = Type.Object({
+  data: Type.Array(AnytypeObject),
+  pagination: Type.Optional(PaginationMeta),
+});
+export type ObjectsResponse = Static<typeof ObjectsResponse>;
+
+export const ObjectWithBody = Type.Object({
+  id: Type.String(),
+  name: Type.Optional(Type.String()),
+  snippet: Type.Optional(Type.String()),
+  markdown: Type.Optional(Type.String()),
+  layout: Type.Optional(Type.String()),
+  space_id: Type.Optional(Type.String()),
+  archived: Type.Optional(Type.Boolean()),
+  object: Type.Optional(Type.String()),
+});
+export type ObjectWithBody = Static<typeof ObjectWithBody>;
+
+export const ObjectResponse = Type.Object({
+  object: ObjectWithBody,
+});
+export type ObjectResponse = Static<typeof ObjectResponse>;
+
+export const SearchRequest = Type.Object({
+  query: Type.Optional(Type.String()),
+  types: Type.Optional(Type.Array(Type.String())),
+});
+export type SearchRequest = Static<typeof SearchRequest>;

@@ -11,4 +11,4 @@ RUN bun install
 
 COPY ./src /app/src
 
-CMD ["bun", "start"]
+CMD ["bun", "dev"]

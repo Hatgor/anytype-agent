@@ -1,0 +1,39 @@
+[
+  {
+    "event": "message_added",
+    "data": {
+      "type": "message_added",
+      "payload": {
+        "message": {
+          "id": "bafyreibfvrxozbsadq22tdkos2gylovajt7gkuxsj55mkfhbgmrnzggsf4",
+          "order_id": "!!+u",
+          "creator": "_participant_bafyreiatodrzle2rm4qyj4556xykozuqy327valyvxmwhkxotfofhrsctu_12orhxm981fr7_A9ypJDn31yhH5YACmMYxGfpF9TvZPVTmf3H3m1oG8kcUB4si",
+          "creator_name": "Andrii  Gerasymenko ",
+          "created_at": 1787509813,
+          "modified_at": 0,
+          "content": {
+            "text": "блрмдлрм",
+            "style": "paragraph"
+          },
+          "attachments": [],
+          "reactions": {},
+          "pinned": false
+        }
+      }
+    }
+  },
+  {
+    "event": "reactions_updated",
+    "data": {
+      "type": "reactions_updated",
+      "payload": {
+        "id": "bafyreiahxtiil37kddca3gzfjes3xm2cavae7iff7upcohwbtn3f3tna4e",
+        "reactions": {
+          "😄": [
+            "A9ypJDn31yhH5YACmMYxGfpF9TvZPVTmf3H3m1oG8kcUB4si"
+          ]
+        }
+      }
+    }
+  }
+]
