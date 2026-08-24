@@ -124,7 +124,7 @@ export class AnytypeService {
   subscribeChatMessages(
     spaceId: string,
     chatId: string,
-  // TODO: get rid of unknown here, use TypeBox validation
+    // TODO: get rid of unknown here, use TypeBox validation
   ): Observable<{ event?: string; data: unknown }> {
     this.log.log(`Subscribing to SSE chat stream for ${chatId} in space ${spaceId}...`);
     return this.client.stream(

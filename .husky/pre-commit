@@ -1,2 +1,2 @@
-bunx biome check --staged --write
+bunx lint-staged
 bun test
