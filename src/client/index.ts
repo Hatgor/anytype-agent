@@ -3,7 +3,7 @@ import { defer, firstValueFrom, from, type Observable, timer } from "rxjs";
 import { finalize, retry, tap } from "rxjs/operators";
 import type { Static, TSchema } from "typebox";
 import Value from "typebox/value";
-import type { AppConfig } from "../config/schema";
+import type { AppConfig } from "../app.config";
 import {
   type AddChatMessageRequest,
   type AnytypeObject,
@@ -27,9 +27,9 @@ import {
   SpacesResponse,
   TypeResponse,
   TypesResponse,
-} from "./schemas";
+} from "./schema";
 
-export * from "./schemas";
+export * from "./schema";
 
 export class AnytypeClient {
   readonly baseUrl: string;

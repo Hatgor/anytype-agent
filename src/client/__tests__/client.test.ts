@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { firstValueFrom } from "rxjs";
-import type { AppConfig } from "../../config/schema";
+import type { AppConfig } from "../../app.config";
 import { AnytypeClient } from "../index";
 
 describe("AnytypeClient", () => {

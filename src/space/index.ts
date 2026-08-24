@@ -1,6 +1,6 @@
 import { merge, type Observable, of } from "rxjs";
 import type { AnytypeClient } from "../client";
-import type { Member, Space } from "../client/schemas";
+import type { Member, Space } from "../client/schema";
 import type { SpaceContext, SpaceEvent } from "./schema";
 import { SpaceWorker } from "./space.worker";
 

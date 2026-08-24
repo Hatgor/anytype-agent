@@ -1,5 +1,5 @@
 import { type Static, Type } from "typebox";
-import { MemberRole } from "../client/schemas";
+import { MemberRole } from "../client/schema";
 
 export const SpaceContext = Type.Object({
   spaceId: Type.String(),

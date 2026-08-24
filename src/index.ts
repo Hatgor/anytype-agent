@@ -1,49 +1,15 @@
-import { tap } from "rxjs/operators";
-import { AnytypeClient } from "./client";
-import { getAppConfig } from "./config";
-import { initSpaceOrchestrator, type SpaceEvent } from "./space";
+import "reflect-metadata";
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "./app.module";
 
-async function main() {
-  console.log("🌟 [AnytypeAgent] Starting Anytype Agent Daemon...");
-
-  let config;
-  try {
-    config = getAppConfig();
-  } catch (err: any) {
-    console.error("❌ [AnytypeAgent] Configuration Error:", err.message);
-    process.exit(1);
-  }
-
-  console.log(`🤖 Bot Name: ${config.ANYTYPE_BOT_NAME}`);
-  console.log(`🔌 Anytype API: ${config.ANYTYPE_API_URL}`);
-
-  const client = new AnytypeClient(config);
-
-  // Wait for Anytype CLI API to become ready (handles cold boot / auto-login)
-  await client.waitForReady();
-
-  const allEvents$ = await initSpaceOrchestrator(client, config.ANYTYPE_BOT_NAME);
-
-  console.log("📡 [AnytypeAgent] Subscribing to all space events...");
-
-  allEvents$
-    .pipe(
-      tap((event: SpaceEvent) => {
-        console.log(`\n🔔 [New Event Received]`);
-        console.dir(event, { depth: null });
-      }),
-    )
-    .subscribe({
-      error: (err) => {
-        console.error("❌ [AnytypeAgent] Stream Error:", err);
-      },
-      complete: () => {
-        console.log("🏁 [AnytypeAgent] All space streams completed.");
-      },
-    });
+async function bootstrap() {
+  console.log("🌟 [AnytypeAgent] Bootstrapping NestJS Standalone Application...");
+  const app = await NestFactory.createApplicationContext(AppModule);
+  app.enableShutdownHooks();
+  console.log("✅ [AnytypeAgent] Application context initialized successfully");
 }
 
-main().catch((err) => {
-  console.error("💥 [AnytypeAgent] Fatal error:", err);
+bootstrap().catch((err: unknown) => {
+  console.error("💥 [AnytypeAgent] Fatal bootstrap error:", err);
   process.exit(1);
 });
