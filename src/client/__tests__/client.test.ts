@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { firstValueFrom } from "rxjs";
-import { AnytypeClient } from "../index";
 import type { AppConfig } from "../../config/schema";
+import { AnytypeClient } from "../index";
 
 describe("AnytypeClient", () => {
   const mockConfig: AppConfig = {
@@ -33,8 +33,8 @@ describe("AnytypeClient", () => {
             data: [],
             pagination: { total: 0, offset: 0, limit: 100, has_more: false },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
       const client = new AnytypeClient(mockConfig, "2025-11-08");
@@ -68,9 +68,7 @@ describe("AnytypeClient", () => {
         pagination: { total: 1, offset: 0, limit: 100, has_more: false },
       };
 
-      fetchSpy.mockResolvedValue(
-        new Response(JSON.stringify(mockResponse), { status: 200 })
-      );
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
       const client = new AnytypeClient(mockConfig);
       const spaces = await client.getSpaces();
@@ -89,9 +87,7 @@ describe("AnytypeClient", () => {
         },
       };
 
-      fetchSpy.mockResolvedValue(
-        new Response(JSON.stringify(mockResponse), { status: 200 })
-      );
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
       const client = new AnytypeClient(mockConfig);
       const space = await client.getSpace("space.123");
@@ -114,9 +110,7 @@ describe("AnytypeClient", () => {
         pagination: { total: 1, offset: 0, limit: 100, has_more: false },
       };
 
-      fetchSpy.mockResolvedValue(
-        new Response(JSON.stringify(mockResponse), { status: 200 })
-      );
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
       const client = new AnytypeClient(mockConfig);
       const chats = await client.getChats("space1");
@@ -131,8 +125,8 @@ describe("AnytypeClient", () => {
           const encoder = new TextEncoder();
           controller.enqueue(
             encoder.encode(
-              `data: {"id":"msg1","text":"Hello bot!","author_id":"user1","created_at":1700000000}\n\n`
-            )
+              `data: {"id":"msg1","text":"Hello bot!","author_id":"user1","created_at":1700000000}\n\n`,
+            ),
           );
           controller.close();
         },
@@ -142,7 +136,7 @@ describe("AnytypeClient", () => {
         new Response(stream, {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
-        })
+        }),
       );
 
       const client = new AnytypeClient(mockConfig);
@@ -179,9 +173,7 @@ describe("AnytypeClient", () => {
         pagination: { total: 2, offset: 0, limit: 100, has_more: false },
       };
 
-      fetchSpy.mockResolvedValue(
-        new Response(JSON.stringify(mockResponse), { status: 200 })
-      );
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
       const client = new AnytypeClient(mockConfig);
       const members = await client.getMembers("space1");
@@ -203,9 +195,7 @@ describe("AnytypeClient", () => {
         },
       };
 
-      fetchSpy.mockResolvedValue(
-        new Response(JSON.stringify(mockResponse), { status: 200 })
-      );
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
       const client = new AnytypeClient(mockConfig);
       const member = await client.getMember("space1", "member1");
@@ -235,9 +225,7 @@ describe("AnytypeClient", () => {
         pagination: { total: 1, offset: 0, limit: 100, has_more: false },
       };
 
-      fetchSpy.mockResolvedValue(
-        new Response(JSON.stringify(mockResponse), { status: 200 })
-      );
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
       const client = new AnytypeClient(mockConfig);
       const types = await client.getTypes("space1");
@@ -258,9 +246,7 @@ describe("AnytypeClient", () => {
         },
       };
 
-      fetchSpy.mockResolvedValue(
-        new Response(JSON.stringify(mockCreated), { status: 201 })
-      );
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify(mockCreated), { status: 201 }));
 
       const client = new AnytypeClient(mockConfig);
       const created = await client.createType({
@@ -300,14 +286,12 @@ describe("AnytypeClient", () => {
         ],
       };
 
-      fetchSpy.mockResolvedValue(
-        new Response(JSON.stringify(invalidResponse), { status: 200 })
-      );
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify(invalidResponse), { status: 200 }));
 
       const client = new AnytypeClient(mockConfig);
 
       await expect(client.getMembers("space1")).rejects.toThrow(
-        /Schema validation failed for \/v1\/spaces\/space1\/members/
+        /Schema validation failed for \/v1\/spaces\/space1\/members/,
       );
     });
 
@@ -316,13 +300,13 @@ describe("AnytypeClient", () => {
         new Response("Unauthorized: Invalid token", {
           status: 401,
           statusText: "Unauthorized",
-        })
+        }),
       );
 
       const client = new AnytypeClient(mockConfig);
 
       await expect(client.getSpaces()).rejects.toThrow(
-        /\[AnytypeClient HTTP 401\] GET \/v1\/spaces: Unauthorized: Invalid token/
+        /\[AnytypeClient HTTP 401\] GET \/v1\/spaces: Unauthorized: Invalid token/,
       );
     });
 
@@ -332,16 +316,14 @@ describe("AnytypeClient", () => {
       const client = new AnytypeClient(mockConfig);
 
       await expect(client.getSpaces()).rejects.toThrow(
-        /Connection failed to http:\/\/127.0.0.1:31012\/v1\/spaces: Connection refused/
+        /Connection failed to http:\/\/127.0.0.1:31012\/v1\/spaces: Connection refused/,
       );
     });
   });
 
   describe("waitForReady (RxJS Pipeline)", () => {
     it("resolves immediately when API is healthy on first attempt", async () => {
-      fetchSpy.mockResolvedValue(
-        new Response(JSON.stringify({ data: [] }), { status: 200 })
-      );
+      fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: [] }), { status: 200 }));
 
       const client = new AnytypeClient(mockConfig);
       await client.waitForReady(3, 10);
@@ -371,7 +353,7 @@ describe("AnytypeClient", () => {
       const client = new AnytypeClient(mockConfig);
 
       await expect(client.waitForReady(3, 10)).rejects.toThrow(
-        /API at http:\/\/127.0.0.1:31012 is still unreachable after 3 attempts/
+        /API at http:\/\/127.0.0.1:31012 is still unreachable after 3 attempts/,
       );
     });
   });

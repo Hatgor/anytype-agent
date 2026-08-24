@@ -142,9 +142,7 @@
         "key": "objective",
         "name": "Objective",
         "format": "objects",
-        "objects": [
-          "bafyreic7adlxpnd4eegz3w5ybodknqc64e6kx7cs6z4j54cuioxzemyaxu"
-        ]
+        "objects": ["bafyreic7adlxpnd4eegz3w5ybodknqc64e6kx7cs6z4j54cuioxzemyaxu"]
       }
     ],
     "markdown": "   \n   \n[GeminiDevBot](anytype://object?objectId=_participant_bafyreiatodrzle2rm4qyj4556xykozuqy327valyvxmwhkxotfofhrsctu_12orhxm981fr7_A92qdwp1XTEYeApR9RFZ1hVpNnUriTKC5KeEzQCbivhsxvPd&spaceId=bafyreiatodrzle2rm4qyj4556xykozuqy327valyvxmwhkxotfofhrsctu.12orhxm981fr7)    \n"

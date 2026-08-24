@@ -1,4 +1,4 @@
-import { Type, type Static } from "typebox";
+import { type Static, Type } from "typebox";
 
 // --- Enums & Primitives ---
 
@@ -37,12 +37,14 @@ export type Color = Static<typeof Color>;
 
 export const Icon = Type.Optional(
   Type.Object({
-    format: Type.Optional(Type.Union([Type.Literal("icon"), Type.Literal("emoji"), Type.Literal("file")])),
+    format: Type.Optional(
+      Type.Union([Type.Literal("icon"), Type.Literal("emoji"), Type.Literal("file")]),
+    ),
     name: Type.Optional(Type.String()),
     color: Type.Optional(Color),
     emoji: Type.Optional(Type.String()),
     file: Type.Optional(Type.String()),
-  })
+  }),
 );
 export type Icon = Static<typeof Icon>;
 
@@ -105,27 +107,36 @@ export type MemberResponse = Static<typeof MemberResponse>;
 
 // --- Chat Schemas ---
 
-export const Chat = Type.Object({
-  id: Type.String(),
-  name: Type.Optional(Type.String()),
-  space_id: Type.Optional(Type.String()),
-  snippet: Type.Optional(Type.String()),
-  layout: Type.Optional(Type.String()),
-  archived: Type.Optional(Type.Boolean()),
-  icon: Type.Optional(Type.Union([Icon, Type.Null()])),
-  object: Type.Optional(Type.String()),
-}, { additionalProperties: true });
+export const Chat = Type.Object(
+  {
+    id: Type.String(),
+    name: Type.Optional(Type.String()),
+    space_id: Type.Optional(Type.String()),
+    snippet: Type.Optional(Type.String()),
+    layout: Type.Optional(Type.String()),
+    archived: Type.Optional(Type.Boolean()),
+    icon: Type.Optional(Type.Union([Icon, Type.Null()])),
+    object: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
 export type Chat = Static<typeof Chat>;
 
-export const ChatsResponse = Type.Object({
-  data: Type.Array(Chat),
-  pagination: Type.Optional(PaginationMeta),
-}, { additionalProperties: true });
+export const ChatsResponse = Type.Object(
+  {
+    data: Type.Array(Chat),
+    pagination: Type.Optional(PaginationMeta),
+  },
+  { additionalProperties: true },
+);
 export type ChatsResponse = Static<typeof ChatsResponse>;
 
-export const ChatResponse = Type.Object({
-  chat: Chat,
-}, { additionalProperties: true });
+export const ChatResponse = Type.Object(
+  {
+    chat: Chat,
+  },
+  { additionalProperties: true },
+);
 export type ChatResponse = Static<typeof ChatResponse>;
 
 export const CreateChatRequest = Type.Object({
@@ -135,14 +146,17 @@ export const CreateChatRequest = Type.Object({
 });
 export type CreateChatRequest = Static<typeof CreateChatRequest>;
 
-export const ChatMessage = Type.Object({
-  id: Type.String(),
-  text: Type.String(),
-  author_id: Type.Optional(Type.String()),
-  creator: Type.Optional(Type.String()),
-  created_at: Type.Optional(Type.Union([Type.String(), Type.Number()])),
-  reply_to_message_id: Type.Optional(Type.String()),
-}, { additionalProperties: true });
+export const ChatMessage = Type.Object(
+  {
+    id: Type.String(),
+    text: Type.String(),
+    author_id: Type.Optional(Type.String()),
+    creator: Type.Optional(Type.String()),
+    created_at: Type.Optional(Type.Union([Type.String(), Type.Number()])),
+    reply_to_message_id: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
 export type ChatMessage = Static<typeof ChatMessage>;
 
 export const ChatMessagesResponse = Type.Object({

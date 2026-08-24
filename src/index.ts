@@ -1,6 +1,6 @@
 import { tap } from "rxjs/operators";
-import { getAppConfig } from "./config";
 import { AnytypeClient } from "./client";
+import { getAppConfig } from "./config";
 import { initSpaceOrchestrator, type SpaceEvent } from "./space";
 
 async function main() {
@@ -30,8 +30,8 @@ async function main() {
     .pipe(
       tap((event: SpaceEvent) => {
         console.log(`\n🔔 [New Event Received]`);
-        console.dir(event, { depth: null })
-      })
+        console.dir(event, { depth: null });
+      }),
     )
     .subscribe({
       error: (err) => {

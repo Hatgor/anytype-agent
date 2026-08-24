@@ -1,5 +1,5 @@
-import { Observable, interval, defer, from, of, merge, timer } from "rxjs";
-import { switchMap, catchError, map, filter, retry, tap } from "rxjs/operators";
+import { defer, from, interval, merge, type Observable, of, timer } from "rxjs";
+import { catchError, filter, map, retry, switchMap, tap } from "rxjs/operators";
 import type { AnytypeClient } from "../client";
 import type { SpaceContext, SpaceEvent } from "./schema";
 
@@ -8,7 +8,7 @@ export * from "./schema";
 export class SpaceWorker {
   constructor(
     readonly context: SpaceContext,
-    private readonly client: AnytypeClient
+    private readonly client: AnytypeClient,
   ) {}
 
   /**
@@ -17,18 +17,20 @@ export class SpaceWorker {
    */
   observe(pollIntervalMs = 30000): Observable<SpaceEvent> {
     console.log(
-      `👀 [SpaceWorker:${this.context.spaceName}] Initialized observer for space ${this.context.spaceId} (chatId: ${this.context.chatId || "none"}, poll: ${pollIntervalMs}ms)`
+      `👀 [SpaceWorker:${this.context.spaceName}] Initialized observer for space ${this.context.spaceId} (chatId: ${this.context.chatId || "none"}, poll: ${pollIntervalMs}ms)`,
     );
 
-    const streams: Observable<SpaceEvent>[] = [
-      this.observeObjectMentions(pollIntervalMs),
-    ];
+    const streams: Observable<SpaceEvent>[] = [this.observeObjectMentions(pollIntervalMs)];
 
     if (this.context.chatId) {
-      console.log(`🔌 [SpaceWorker:${this.context.spaceName}] Registering SSE chat observer for chatId: ${this.context.chatId}`);
+      console.log(
+        `🔌 [SpaceWorker:${this.context.spaceName}] Registering SSE chat observer for chatId: ${this.context.chatId}`,
+      );
       streams.push(this.observeChatSSE(this.context.chatId));
     } else {
-      console.warn(`⚠️ [SpaceWorker:${this.context.spaceName}] No chatId available. SSE chat observer is disabled!`);
+      console.warn(
+        `⚠️ [SpaceWorker:${this.context.spaceName}] No chatId available. SSE chat observer is disabled!`,
+      );
     }
 
     return merge(...streams);
@@ -44,7 +46,7 @@ export class SpaceWorker {
   // SpaceEvent must be split into SpaceChatEvent & SpaceObjectEvent
   private observeChatSSE(chatId: string): Observable<SpaceEvent> {
     console.log(
-      `🔌 [SpaceWorker:${this.context.spaceName}] Subscribing to SSE chat stream (${chatId})...`
+      `🔌 [SpaceWorker:${this.context.spaceName}] Subscribing to SSE chat stream (${chatId})...`,
     );
 
     return this.client.subscribeChatMessages(this.context.spaceId, chatId).pipe(
@@ -61,11 +63,11 @@ export class SpaceWorker {
       retry({
         delay: (err, retryCount) => {
           console.warn(
-            `⚠️ [SpaceWorker:${this.context.spaceName}] SSE chat stream disconnected (${err.message}). Retrying (#${retryCount}) in 5s...`
+            `⚠️ [SpaceWorker:${this.context.spaceName}] SSE chat stream disconnected (${err.message}). Retrying (#${retryCount}) in 5s...`,
           );
           return timer(5000);
         },
-      })
+      }),
     );
   }
 
@@ -82,16 +84,16 @@ export class SpaceWorker {
           from(
             this.client.searchSpace(this.context.spaceId, {
               query,
-            })
-          )
+            }),
+          ),
         ).pipe(
           catchError((err) => {
             console.error(
-              `⚠️ [SpaceWorker:${this.context.spaceName}] Object search failed for "${query}": ${err.message}`
+              `⚠️ [SpaceWorker:${this.context.spaceName}] Object search failed for "${query}": ${err.message}`,
             );
             return of([]);
-          })
-        )
+          }),
+        ),
       ),
       switchMap((objects) => from(objects)),
       // Filter out invalid, archived, or chat objects
@@ -113,18 +115,18 @@ export class SpaceWorker {
           })),
           catchError((err) => {
             console.warn(
-              `⚠️ [SpaceWorker:${this.context.spaceName}] Could not fetch body for object ${obj.id}: ${err.message}`
+              `⚠️ [SpaceWorker:${this.context.spaceName}] Could not fetch body for object ${obj.id}: ${err.message}`,
             );
             return of({
               searchResult: obj,
               object: null,
             });
-          })
-        )
+          }),
+        ),
       ),
       map((combinedPayload) => {
         console.log(
-          `📑 [SpaceWorker:${this.context.spaceName}] Found object mentioning bot: "${combinedPayload.searchResult.name || "Untitled"}" (${combinedPayload.searchResult.id})`
+          `📑 [SpaceWorker:${this.context.spaceName}] Found object mentioning bot: "${combinedPayload.searchResult.name || "Untitled"}" (${combinedPayload.searchResult.id})`,
         );
         const event: SpaceEvent = {
           source: "object_search",
@@ -134,7 +136,7 @@ export class SpaceWorker {
           receivedAt: Date.now(),
         };
         return event;
-      })
+      }),
     );
   }
 }

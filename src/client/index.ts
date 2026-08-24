@@ -1,32 +1,32 @@
-import { type TSchema, type Static } from "typebox";
-import Value from "typebox/value";
-import { defer, firstValueFrom, timer, Observable, from } from "rxjs";
-import { retry, tap, finalize } from "rxjs/operators";
 import { createParser } from "eventsource-parser";
+import { defer, firstValueFrom, from, type Observable, timer } from "rxjs";
+import { finalize, retry, tap } from "rxjs/operators";
+import type { Static, TSchema } from "typebox";
+import Value from "typebox/value";
 import type { AppConfig } from "../config/schema";
 import {
-  Space,
-  SpacesResponse,
-  SpaceResponse,
-  Member,
-  MembersResponse,
-  MemberResponse,
-  Chat,
-  ChatsResponse,
-  ChatResponse,
-  CreateChatRequest,
-  ChatMessage,
+  type AddChatMessageRequest,
+  type AnytypeObject,
+  type AnytypeType,
+  type Chat,
+  type ChatMessage,
   ChatMessageResponse,
-  AddChatMessageRequest,
-  AnytypeType,
-  TypesResponse,
-  TypeResponse,
-  CreateTypeRequest,
-  AnytypeObject,
-  ObjectsResponse,
-  ObjectWithBody,
+  ChatResponse,
+  ChatsResponse,
+  type CreateChatRequest,
+  type CreateTypeRequest,
+  type Member,
+  MemberResponse,
+  MembersResponse,
   ObjectResponse,
-  SearchRequest,
+  ObjectsResponse,
+  type ObjectWithBody,
+  type SearchRequest,
+  type Space,
+  SpaceResponse,
+  SpacesResponse,
+  TypeResponse,
+  TypesResponse,
 } from "./schemas";
 
 export * from "./schemas";
@@ -45,7 +45,7 @@ export class AnytypeClient {
   private async request<T extends TSchema>(
     schema: T,
     path: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
   ): Promise<Static<T>> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -68,7 +68,7 @@ export class AnytypeClient {
     if (!res.ok) {
       const errorBody = await res.text().catch(() => "");
       throw new Error(
-        `[AnytypeClient HTTP ${res.status}] ${options.method || "GET"} ${path}: ${errorBody || res.statusText}`
+        `[AnytypeClient HTTP ${res.status}] ${options.method || "GET"} ${path}: ${errorBody || res.statusText}`,
       );
     }
 
@@ -80,7 +80,7 @@ export class AnytypeClient {
         .map((e) => `  - ${e.instancePath || "/"}: ${e.message} (schema: ${e.schemaPath})`)
         .join("\n");
       throw new Error(
-        `[AnytypeClient] Schema validation failed for ${path}:\n${errors}\nPayload: ${JSON.stringify(raw, null, 2)}`
+        `[AnytypeClient] Schema validation failed for ${path}:\n${errors}\nPayload: ${JSON.stringify(raw, null, 2)}`,
       );
     }
   }
@@ -94,21 +94,21 @@ export class AnytypeClient {
         count: maxAttempts - 1,
         delay: (error, retryCount) => {
           console.log(
-            `⏳ [AnytypeClient] Waiting for Anytype API (${this.baseUrl})... (attempt ${retryCount}/${maxAttempts})`
+            `⏳ [AnytypeClient] Waiting for Anytype API (${this.baseUrl})... (attempt ${retryCount}/${maxAttempts})`,
           );
           return timer(intervalMs);
         },
       }),
       tap(() => {
         console.log(`✅ [AnytypeClient] Successfully connected to Anytype API at ${this.baseUrl}`);
-      })
+      }),
     );
 
     try {
       await firstValueFrom(ready$);
     } catch (err: any) {
       throw new Error(
-        `[AnytypeClient] API at ${this.baseUrl} is still unreachable after ${maxAttempts} attempts: ${err.message}`
+        `[AnytypeClient] API at ${this.baseUrl} is still unreachable after ${maxAttempts} attempts: ${err.message}`,
       );
     }
   }
@@ -130,7 +130,7 @@ export class AnytypeClient {
   async getMembers(spaceId: string): Promise<Member[]> {
     const res = await this.request(
       MembersResponse,
-      `/v1/spaces/${encodeURIComponent(spaceId)}/members`
+      `/v1/spaces/${encodeURIComponent(spaceId)}/members`,
     );
     return res.data;
   }
@@ -138,7 +138,7 @@ export class AnytypeClient {
   async getMember(spaceId: string, memberId: string): Promise<Member> {
     const res = await this.request(
       MemberResponse,
-      `/v1/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(memberId)}`
+      `/v1/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(memberId)}`,
     );
     return res.member;
   }
@@ -148,7 +148,7 @@ export class AnytypeClient {
   async getChats(spaceId: string): Promise<Chat[]> {
     const res = await this.request(
       ChatsResponse,
-      `/v1/spaces/${encodeURIComponent(spaceId)}/chats`
+      `/v1/spaces/${encodeURIComponent(spaceId)}/chats`,
     );
     return res.data;
   }
@@ -160,7 +160,7 @@ export class AnytypeClient {
       {
         method: "POST",
         body: JSON.stringify(payload),
-      }
+      },
     );
     return res.chat;
   }
@@ -171,8 +171,11 @@ export class AnytypeClient {
       `/v1/spaces/${encodeURIComponent(payload.space_id)}/chats/${encodeURIComponent(payload.chat_id)}/messages`,
       {
         method: "POST",
-        body: JSON.stringify({ text: payload.text, reply_to_message_id: payload.reply_to_message_id }),
-      }
+        body: JSON.stringify({
+          text: payload.text,
+          reply_to_message_id: payload.reply_to_message_id,
+        }),
+      },
     );
     return res.message;
   }
@@ -183,7 +186,7 @@ export class AnytypeClient {
    */
   subscribeChatMessages(
     spaceId: string,
-    chatId: string
+    chatId: string,
   ): Observable<{ event?: string; data: any }> {
     return defer(() => {
       const abortController = new AbortController();
@@ -202,15 +205,19 @@ export class AnytypeClient {
           try {
             res = await fetch(url, { headers, signal: abortController.signal });
           } catch (err: any) {
-            console.error(`❌ [AnytypeClient SSE] Network failure connecting to ${url}: ${err.message}`);
+            console.error(
+              `❌ [AnytypeClient SSE] Network failure connecting to ${url}: ${err.message}`,
+            );
             throw new Error(`[AnytypeClient SSE] Connection failed to ${url}: ${err.message}`);
           }
 
           if (!res.ok || !res.body) {
             const errorBody = await res.text().catch(() => "");
-            console.error(`❌ [AnytypeClient SSE HTTP ${res.status}] ${res.statusText} - Body: ${errorBody}`);
+            console.error(
+              `❌ [AnytypeClient SSE HTTP ${res.status}] ${res.statusText} - Body: ${errorBody}`,
+            );
             throw new Error(
-              `[AnytypeClient SSE ${res.status}] Failed to connect: ${errorBody || res.statusText}`
+              `[AnytypeClient SSE ${res.status}] Failed to connect: ${errorBody || res.statusText}`,
             );
           }
 
@@ -254,14 +261,14 @@ export class AnytypeClient {
             reader.releaseLock();
             console.log(`🔒 [AnytypeClient SSE] Reader lock released for ${chatId}`);
           }
-        })()
+        })(),
       );
 
       return stream$.pipe(
         finalize(() => {
           console.log(`🛑 [AnytypeClient SSE] Finalizing and aborting connection for ${chatId}`);
           abortController.abort();
-        })
+        }),
       );
     });
   }
@@ -271,7 +278,7 @@ export class AnytypeClient {
   async getTypes(spaceId: string): Promise<AnytypeType[]> {
     const res = await this.request(
       TypesResponse,
-      `/v1/spaces/${encodeURIComponent(spaceId)}/types`
+      `/v1/spaces/${encodeURIComponent(spaceId)}/types`,
     );
     return res.data;
   }
@@ -283,7 +290,7 @@ export class AnytypeClient {
       {
         method: "POST",
         body: JSON.stringify(payload),
-      }
+      },
     );
     return res.type;
   }
@@ -297,7 +304,7 @@ export class AnytypeClient {
       {
         method: "POST",
         body: JSON.stringify(payload),
-      }
+      },
     );
     return res.data;
   }
@@ -305,7 +312,7 @@ export class AnytypeClient {
   async getObject(spaceId: string, objectId: string, format = "md"): Promise<ObjectWithBody> {
     const res = await this.request(
       ObjectResponse,
-      `/v1/spaces/${encodeURIComponent(spaceId)}/objects/${encodeURIComponent(objectId)}?format=${format}`
+      `/v1/spaces/${encodeURIComponent(spaceId)}/objects/${encodeURIComponent(objectId)}?format=${format}`,
     );
     return res.object;
   }

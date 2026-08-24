@@ -1,4 +1,4 @@
-import { Type, type Static } from "typebox";
+import { type Static, Type } from "typebox";
 import { MemberRole } from "../client/schemas";
 
 export const SpaceContext = Type.Object({
@@ -21,6 +21,6 @@ export const SpaceEvent = Type.Object(
     payload: Type.Any(),
     receivedAt: Type.Number(),
   },
-  { additionalProperties: true }
+  { additionalProperties: true },
 );
 export type SpaceEvent = Static<typeof SpaceEvent>;

@@ -4,11 +4,15 @@
   "type": "module",
   "private": true,
   "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
     "@types/bun": "latest"
   },
   "scripts": {
     "start": "bun ./src/index.ts",
-    "dev": "bun ./src/index.ts --watch"
+    "dev": "bun ./src/index.ts --watch",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome check --write ."
   },
   "peerDependencies": {
     "typescript": "^7"

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
-import { AnytypeClient } from "../../client";
-import { initSpaceOrchestrator, SpaceWorker, type SpaceContext } from "../index";
-import type { AppConfig } from "../../config/schema";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { firstValueFrom } from "rxjs";
+import { AnytypeClient } from "../../client";
+import type { AppConfig } from "../../config/schema";
+import { initSpaceOrchestrator, type SpaceContext, SpaceWorker } from "../index";
 
 describe("Space Module", () => {
   const mockConfig: AppConfig = {
@@ -89,7 +89,7 @@ describe("Space Module", () => {
             JSON.stringify({
               data: [{ id: "chat.space1", name: "Chat with GeminiBot" }],
             }),
-            { status: 200 }
+            { status: 200 },
           );
         }
         if (urlStr.includes("/types") && method === "GET") {
@@ -104,7 +104,7 @@ describe("Space Module", () => {
                 },
               ],
             }),
-            { status: 200 }
+            { status: 200 },
           );
         }
         return new Response(JSON.stringify({ data: [] }), { status: 200 });
@@ -152,7 +152,7 @@ describe("Space Module", () => {
                 body: "# Architecture\nHello @GeminiBot",
               },
             }),
-            { status: 200 }
+            { status: 200 },
           );
         }
         return new Response(JSON.stringify({ data: [] }), { status: 200 });

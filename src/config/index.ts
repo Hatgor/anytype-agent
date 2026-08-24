@@ -1,4 +1,3 @@
-
 import Value from "typebox/value";
 import { AppConfig } from "./schema";
 
