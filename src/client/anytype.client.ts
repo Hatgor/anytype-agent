@@ -1,8 +1,8 @@
 import { Logger } from "@nestjs/common";
 import type { ConfigService } from "@nestjs/config";
-import { createParser } from "eventsource-parser";
+import { EventSourceParserStream } from "eventsource-parser/stream";
 import { defer, firstValueFrom, from, type Observable, timer } from "rxjs";
-import { finalize, retry, tap } from "rxjs/operators";
+import { finalize, map, retry, switchMap, tap } from "rxjs/operators";
 import type { Static, TSchema } from "typebox";
 import Value from "typebox/value";
 import type { AppConfig } from "../app.config";
@@ -98,94 +98,53 @@ export class AnytypeClient {
   stream(path: string): Observable<{ event?: string; data: unknown }> {
     return defer(() => {
       const abortController = new AbortController();
-      const stream$ = from(this.fetchEventStream(path, abortController.signal));
+      const url = `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+      const headers = {
+        Accept: "text/event-stream",
+        "Anytype-Version": this.apiVersion,
+        Authorization: `Bearer ${this.apiKey}`,
+      };
 
-      return stream$.pipe(
+      this.logger.log(`🔌 [AnytypeClient SSE] Subscribing to: ${url}`);
+
+      return from(this.getRawStream(url, headers, abortController.signal)).pipe(
+        switchMap((eventStream) => from(eventStream)),
+        map((event) => {
+          let parsedData: unknown;
+          try {
+            parsedData = JSON.parse(event.data);
+          } catch {
+            parsedData = event.data;
+          }
+          return { event: event.event, data: parsedData };
+        }),
         finalize(() => {
-          this.logger.log(`🛑 [AnytypeClient SSE] Finalizing and aborting connection for ${path}`);
+          this.logger.log(`🛑 [AnytypeClient SSE] Aborting connection for ${path}`);
           abortController.abort();
         }),
       );
     });
   }
 
-  /**
-   * Private async generator that connects to the SSE endpoint and yields parsed events.
-   */
-  private async *fetchEventStream(
-    path: string,
+  private async getRawStream(
+    url: string,
+    headers: Record<string, string>,
     signal: AbortSignal,
-  ): AsyncGenerator<{ event?: string; data: unknown }> {
-    const url = `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
-    const headers = {
-      Accept: "text/event-stream",
-      "Anytype-Version": this.apiVersion,
-      Authorization: `Bearer ${this.apiKey}`,
-    };
+  ): Promise<ReadableStream> {
+    return fetch(url, { headers, signal }).then(async (res) => {
+      if (!res.ok || !res.body) {
+        const errorBody = await res.text().catch(() => "");
+        throw new Error(
+          `[AnytypeClient SSE ${res.status}] Failed to connect: ${errorBody || res.statusText}`,
+        );
+      }
 
-    this.logger.log(`🔌 [AnytypeClient SSE] Initiating connection to: ${url}`);
+      this.logger.log(`✅ [AnytypeClient SSE] Stream established with status ${res.status}`);
 
-    let res: Response;
-    try {
-      res = await fetch(url, { headers, signal });
-    } catch (err: unknown) {
-      if (signal.aborted) return;
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`❌ [AnytypeClient SSE] Network failure connecting to ${url}: ${message}`);
-      throw err;
-    }
-
-    if (!res.ok || !res.body) {
-      const errorBody = await res.text().catch(() => "");
-      throw new Error(
-        `[AnytypeClient SSE ${res.status}] Failed to connect: ${errorBody || res.statusText}`,
-      );
-    }
-
-    this.logger.log(`✅ [AnytypeClient SSE] Stream established with status ${res.status}`);
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    const queue: { event?: string; data: unknown }[] = [];
-
-    const parser = createParser({
-      onEvent(event) {
-        if (event.data === undefined) return;
-        let parsedData: unknown;
-        try {
-          parsedData = JSON.parse(event.data);
-        } catch {
-          parsedData = event.data;
-        }
-        queue.push({ event: event.event, data: parsedData });
-      },
+      return res.body
+        .pipeThrough(new TextDecoderStream())
+        .pipeThrough(new EventSourceParserStream());
     });
-
-    try {
-      while (!signal.aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const decodedText = decoder.decode(value, { stream: true });
-        parser.feed(decodedText);
-        while (queue.length > 0) {
-          const item = queue.shift();
-          if (item) yield item;
-        }
-      }
-    } catch (readErr: unknown) {
-      if (!signal.aborted) {
-        throw readErr;
-      }
-    } finally {
-      try {
-        await reader.cancel().catch(() => {});
-      } catch {
-        // ignore cancel error
-      }
-      reader.releaseLock();
-      this.logger.log(`🔒 [AnytypeClient SSE] Reader lock released for ${path}`);
-    }
   }
 
   /**

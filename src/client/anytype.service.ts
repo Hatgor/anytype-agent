@@ -69,6 +69,19 @@ export class AnytypeService {
     return res.member;
   }
 
+  async getSpacesWithMembers() {
+    const spaces = await this.getSpaces();
+    return await Promise.all(
+      spaces.map(async (space) => {
+        const members = await this.getMembers(space.id).catch((err) => {
+          this.log.error(`Failed to fetch members for space ${space.id}: ${err}`);
+          return [];
+        });
+        return { ...space, members };
+      }),
+    );
+  }
+
   // --- Chats & Messages ---
 
   async getChats(spaceId: string): Promise<Chat[]> {

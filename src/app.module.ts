@@ -3,6 +3,7 @@ import { ConfigModule } from "@nestjs/config";
 import { ClsModule } from "nestjs-cls";
 import { validateConfig } from "./app.config";
 import { ClientModule } from "./client";
+import { ObserverModule } from "./observer/observer.module";
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { ClientModule } from "./client";
       global: true,
     }),
     ClientModule,
+    ObserverModule,
   ],
 })
 export class AppModule {}
