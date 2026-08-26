@@ -1,6 +1,17 @@
 import { Injectable } from "@nestjs/common";
-import { filter, from, map, type Observable, of, retry, switchMap, takeUntil, tap } from "rxjs";
+import {
+  debounceTime,
+  filter,
+  from,
+  map,
+  type Observable,
+  of,
+  retry,
+  switchMap,
+  takeUntil,
+} from "rxjs";
 import { AnytypeService, type Chat } from "../client";
+import type { ChatEvent, ChatMessagePayload } from "../client/types";
 import { AbstractObserver, type AgentEvent, type ObserverFactory } from "./types";
 
 @Injectable()
@@ -13,6 +24,9 @@ export class ChatObserverFactory implements ObserverFactory {
 }
 
 export class ChatObserver extends AbstractObserver {
+  private readonly MAX_HISTORY = 50;
+  private readonly history = new Map<string, ChatMessagePayload>();
+
   constructor(
     private readonly spaceId: string,
     private readonly botName: string,
@@ -52,34 +66,26 @@ export class ChatObserver extends AbstractObserver {
 
   private subscribeToChat(chatId: string): Observable<AgentEvent> {
     return this.anytype.subscribeChatMessages(this.spaceId, chatId).pipe(
-      // tap((msg) => {
-      //   this.logger.debug(msg);
-      // }),
       filter((msg) => msg !== null),
+      map((msg) => this.handleHistory(msg)),
 
-      // TODO: полная жопа с типами, надо их переделать, нихера не понятно
       // 2. Anti-Echo: игнорируем сообщения от самого бота
-      // filter((msg) => msg.creator_name?.trim().toLowerCase()
-      // !== this.botName.toLowerCase()),
+      filter(
+        (msg) =>
+          "creator_name" in msg &&
+          msg.creator_name.trim().toLowerCase() !== this.botName.toLowerCase(),
+      ),
 
-      // TODO: настоящая дедупликация нужна через Ring Buffer с подгрузкой при инициализации и SQLite
-      // 3. Дедупликация: не повторяем то, что уже видели
-      // filter((msg) => {
-      //   if (msg.id === this.lastSeenMessageId) return false;
-      //   this.lastSeenMessageId = msg.id;
-      //   return true;
-      // }),
-
-      // TODO: нужен дебаунс обязательно!!!
+      debounceTime(800),
 
       // TODO: нужен настоящий доменный ChatEvent, с историей сообщений, курсором и так далее.
       // 4. Мапим в доменный AgentEvent
       map(
-        (msg): AgentEvent => ({
+        (): AgentEvent => ({
           source: "chat",
           spaceId: this.spaceId,
           chatId,
-          payload: msg,
+          payload: Array.from(this.history.values()),
           timestamp: Date.now(),
         }),
       ),
@@ -88,4 +94,33 @@ export class ChatObserver extends AbstractObserver {
       retry({ delay: 3000 }),
     );
   }
+
+  private readonly handleHistory = (msg: ChatEvent) => {
+    switch (msg.type) {
+      case "message_added":
+        this.history.set(msg.id, msg);
+
+        if (this.history.size > this.MAX_HISTORY) {
+          const oldestKey = this.history.keys().next().value;
+          if (oldestKey) this.history.delete(oldestKey);
+        }
+
+        return msg;
+      case "message_updated":
+        this.history.set(msg.id, msg);
+        return msg;
+      case "message_deleted":
+        this.history.delete(msg.id);
+        return msg;
+      case "reactions_updated": {
+        const prev = this.history.get(msg.id);
+        if (!prev) return msg;
+
+        this.history.set(prev.id, { ...prev, reactions: msg.reactions });
+        return prev;
+      }
+      default:
+        return msg;
+    }
+  };
 }

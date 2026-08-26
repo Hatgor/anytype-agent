@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { Observable } from "rxjs";
+import { map, type Observable } from "rxjs";
+import { check } from "../type.registry";
 import type { AnytypeClient } from "./anytype.client";
 import { ANYTYPE_CLIENT } from "./client.constants";
 import {
@@ -27,6 +28,14 @@ import {
   TypeResponse,
   TypesResponse,
 } from "./schema";
+import {
+  type ChatEvent,
+  type ChatMessageAdded,
+  RawChatMessageAdded,
+  RawChatMessageDeleted,
+  RawChatMessageUpdated,
+  RawReactionUpdated,
+} from "./types";
 
 @Injectable()
 export class AnytypeService {
@@ -138,11 +147,29 @@ export class AnytypeService {
     spaceId: string,
     chatId: string,
     // TODO: get rid of unknown here, use TypeBox validation
-  ): Observable<{ event?: string; data: unknown }> {
+  ): Observable<ChatEvent | null> {
     this.log.log(`Subscribing to SSE chat stream for ${chatId} in space ${spaceId}...`);
-    return this.client.stream(
-      `/v1/spaces/${encodeURIComponent(spaceId)}/chats/${encodeURIComponent(chatId)}/messages/stream`,
-    );
+    return this.client
+      .stream(
+        `/v1/spaces/${encodeURIComponent(spaceId)}/chats/${encodeURIComponent(chatId)}/messages/stream`,
+      )
+      .pipe(
+        map(({ event, data }) => {
+          switch (true) {
+            case check(RawChatMessageAdded, data):
+              return { type: data.type, ...data.payload.message };
+            case check(RawChatMessageUpdated, data):
+              return { type: data.type, ...data.payload.message };
+            case check(RawChatMessageDeleted, data):
+              return { type: data.type, id: data.payload.id };
+            case check(RawReactionUpdated, data):
+              return { type: data.type, ...data.payload };
+            default:
+              this.log.warn(`Unknown event: ${event}, data: ${JSON.stringify(data)}`);
+              return null;
+          }
+        }),
+      );
   }
 
   // --- Types ---
