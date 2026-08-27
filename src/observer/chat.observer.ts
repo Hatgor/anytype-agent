@@ -84,8 +84,7 @@ export class ChatObserver extends AbstractObserver {
       switchMap((chat) =>
         chat
           ? of(chat)
-          : this.anytype.createChat({
-              space_id: this.spaceId,
+          : this.anytype.createChat(this.spaceId, {
               name: this.botName,
             }),
       ),
@@ -97,6 +96,15 @@ export class ChatObserver extends AbstractObserver {
       filter((msg) => msg !== null),
       map((msg) => this.handleHistory(msg)),
 
+      // tap(async (event) => {
+      //   await (await import("node:fs/promises")).writeFile(
+      //     `./src/event-${event.id}.log`,
+      //     JSON.stringify(event, null, 2),
+      //   );
+
+      //   return event;
+      // }),
+
       // 2. Триггер — только чужие message_added:
       //    анти-эхо (игнор бота); правки, удаления и реакции LLM не будят
       filter(
@@ -107,6 +115,13 @@ export class ChatObserver extends AbstractObserver {
 
       // 3. Дебаунс: склеивает залп стартовых/пользовательских сообщений
       debounceTime(this.debounceMs),
+
+      // tap(async () => {
+      //   await (await import("node:fs/promises")).writeFile(
+      //     `./src/chat-${chatId}.log`,
+      //     JSON.stringify(this.history.values().toArray(), null, 2),
+      //   );
+      // }),
 
       // 4. Пропускаем ровно 1-е событие (стартовый бэкфилл 50 старых сообщений при подключении)
       skip(1),
@@ -134,9 +149,7 @@ export class ChatObserver extends AbstractObserver {
           // 7. Отправляем ответ в чат Anytype
           switchMap((validReplyText) =>
             from(
-              this.anytype.addChatMessage({
-                space_id: this.spaceId,
-                chat_id: chatId,
+              this.anytype.addChatMessage(this.spaceId, chatId, {
                 text: validReplyText,
               }),
             ),

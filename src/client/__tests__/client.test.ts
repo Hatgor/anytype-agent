@@ -118,7 +118,33 @@ describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
       expect(spaces[0]?.name).toBe("Test Space");
     });
 
-    it("addChatMessage: sends only message payload to correct chat endpoint", async () => {
+    it("createChat: sends body to space chats endpoint", async () => {
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            chat: { id: "chat_1", name: "New Chat" },
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const chat = await service.createChat("space_99", {
+        name: "New Chat",
+      });
+
+      expect(chat.id).toBe("chat_1");
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space_99/chats");
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body as string)).toEqual({
+        name: "New Chat",
+      });
+    });
+
+    it("addChatMessage: sends message body to correct chat endpoint", async () => {
       fetchSpy.mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -131,9 +157,7 @@ describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
       const client = createTestClient();
       const service = new AnytypeService(client);
 
-      const res = await service.addChatMessage({
-        space_id: "space_99",
-        chat_id: "chat_42",
+      const res = await service.addChatMessage("space_99", "chat_42", {
         text: "Hi from bot",
       });
 
@@ -143,6 +167,105 @@ describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
       expect(JSON.parse(init.body as string)).toEqual({
         text: "Hi from bot",
       });
+    });
+
+    it("editChatMessage: sends PATCH with text and optional attributes to message endpoint", async () => {
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const res = await service.editChatMessage("space_99", "chat_42", "msg_777", {
+        text: "Updated text",
+        style: "paragraph",
+        marks: [{ type: "bold", from: 0, to: 5 }],
+      });
+
+      expect(res).toEqual({});
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space_99/chats/chat_42/messages/msg_777");
+      expect(init.method).toBe("PATCH");
+      expect(JSON.parse(init.body as string)).toEqual({
+        text: "Updated text",
+        style: "paragraph",
+        marks: [{ type: "bold", from: 0, to: 5 }],
+      });
+    });
+
+    it("deleteChatMessage: sends DELETE to message endpoint", async () => {
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const res = await service.deleteChatMessage("space_99", "chat_42", "msg_777");
+
+      expect(res).toEqual({});
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space_99/chats/chat_42/messages/msg_777");
+      expect(init.method).toBe("DELETE");
+    });
+
+    it("toggleMessageReaction: sends POST with emoji to reactions endpoint", async () => {
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const res = await service.toggleMessageReaction("space_99", "chat_42", "msg_777", {
+        emoji: "👍",
+      });
+
+      expect(res).toEqual({});
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        "http://127.0.0.1:31012/v1/spaces/space_99/chats/chat_42/messages/msg_777/reactions",
+      );
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body as string)).toEqual({
+        emoji: "👍",
+      });
+    });
+
+    it("createType: sends body to space types endpoint", async () => {
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            type: { id: "type_1", key: "custom", name: "Custom", plural_name: "Customs" },
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const res = await service.createType("space_99", {
+        name: "Custom",
+        plural_name: "Customs",
+        layout: "basic",
+      });
+
+      expect(res.id).toBe("type_1");
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space_99/types");
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body as string)).toEqual({
+        name: "Custom",
+        plural_name: "Customs",
+        layout: "basic",
+      });
+    });
+
+    it("empty 200 body: mutations succeed when backend returns no body at all", async () => {
+      fetchSpy.mockResolvedValueOnce(new Response("", { status: 200 }));
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const res = await service.deleteChatMessage("space_99", "chat_42", "msg_777");
+
+      expect(res).toEqual({});
     });
   });
 

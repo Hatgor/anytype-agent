@@ -48,8 +48,7 @@ async function setupSpaceContext(
       console.log(
         `💬 [Space:${space.name}] No bot chat found. Creating "Chat with ${botMember.name}"...`,
       );
-      const newChat = await client.createChat({
-        space_id: space.id,
+      const newChat = await client.createChat(space.id, {
         name: `Chat with ${botMember.name}`,
       });
       chatId = newChat.id;
@@ -94,8 +93,7 @@ async function setupSpaceContext(
       agentResponseTypeId = existingType.id;
     } else {
       console.log(`📄 [Space:${space.name}] Creating custom type "Agent Response"...`);
-      const newType = await client.createType({
-        space_id: space.id,
+      const newType = await client.createType(space.id, {
         name: "Agent Response",
         plural_name: "Agent Responses",
         layout: "note",

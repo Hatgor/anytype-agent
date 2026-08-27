@@ -25,7 +25,9 @@ describe("ChatObserver (Unit Tests)", () => {
         options.getChats ?? (async () => [{ id: "chat.1", name: "Chat with TestBot" }] as Chat[]),
       ),
       createChat: mock(async () => ({ id: "chat.created", name: "TestBot" }) as Chat),
-      addChatMessage: mock(async (_payload: unknown) => ({ message_id: "m_1" })),
+      addChatMessage: mock(async (_spaceId: string, _chatId: string, _body: unknown) => ({
+        message_id: "m_1",
+      })),
       subscribeChatMessages: mock((_spaceId: string, _chatId: string): Observable<ChatEvent> => {
         return defer(() => {
           const sub = new Subject<ChatEvent>();
@@ -216,10 +218,12 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await waitFor(() => callCount(anytypeFake.addChatMessage) === 1);
 
-    const addCall = callArg<{ space_id: string; chat_id: string; text: string }>(
-      anytypeFake.addChatMessage,
-    );
-    expect(addCall.text).toBe("Bot reply");
+    const spaceId = callArg<string>(anytypeFake.addChatMessage, 0, 0);
+    const chatId = callArg<string>(anytypeFake.addChatMessage, 0, 1);
+    const addBody = callArg<{ text: string }>(anytypeFake.addChatMessage, 0, 2);
+    expect(spaceId).toBe("space.1");
+    expect(chatId).toBe("chat.1");
+    expect(addBody.text).toBe("Bot reply");
   });
 
   it("7. Пустой ответ LLM ('' и '   ') -> addChatMessage не вызывался, heartbeat не бился, поток жив", async () => {

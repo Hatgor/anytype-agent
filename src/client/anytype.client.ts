@@ -53,7 +53,9 @@ export class AnytypeClient {
 
     let raw: unknown;
     try {
-      raw = await res.json();
+      // 200-ответы мутаций могут приходить с пустым телом — спека не определяет схему
+      const text = await res.text();
+      raw = text.length > 0 ? JSON.parse(text) : {};
     } catch (jsonErr: unknown) {
       const message = jsonErr instanceof Error ? jsonErr.message : String(jsonErr);
       throw new Error(`[AnytypeClient] Failed to parse JSON response from ${path}: ${message}`);
@@ -84,6 +86,19 @@ export class AnytypeClient {
     return this.request(schema, path, {
       ...init,
       method: "POST",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  async patch<T extends TSchema>(
+    schema: T,
+    path: string,
+    body?: unknown,
+    init?: RequestInit,
+  ): Promise<Static<T>> {
+    return this.request(schema, path, {
+      ...init,
+      method: "PATCH",
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   }

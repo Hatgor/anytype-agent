@@ -4,7 +4,7 @@ import { check } from "../type.registry";
 import type { AnytypeClient } from "./anytype.client";
 import { ANYTYPE_CLIENT } from "./client.constants";
 import {
-  type AddChatMessageRequest,
+  type AddChatMessageBody,
   AddChatMessageResponse,
   type AnytypeObject,
   type AnytypeType,
@@ -13,8 +13,10 @@ import {
   ChatMessagesResponse,
   ChatResponse,
   ChatsResponse,
-  type CreateChatRequest,
-  type CreateTypeRequest,
+  type CreateChatBody,
+  type CreateTypeBody,
+  type EditChatMessageBody,
+  EmptyResponse,
   type Member,
   MemberResponse,
   MembersResponse,
@@ -25,6 +27,7 @@ import {
   type Space,
   SpaceResponse,
   SpacesResponse,
+  type ToggleMessageReactionBody,
   TypeResponse,
   TypesResponse,
 } from "./schema";
@@ -102,27 +105,68 @@ export class AnytypeService {
     return res.data;
   }
 
-  async createChat(payload: CreateChatRequest): Promise<Chat> {
-    this.log.log(`Creating new chat "${payload.name}" in space ${payload.space_id}...`);
+  async createChat(spaceId: string, body: CreateChatBody): Promise<Chat> {
+    this.log.log(`Creating new chat "${body.name}" in space ${spaceId}...`);
     const res = await this.client.post(
       ChatResponse,
-      `/v1/spaces/${encodeURIComponent(payload.space_id)}/chats`,
-      payload,
+      `/v1/spaces/${encodeURIComponent(spaceId)}/chats`,
+      body,
     );
     return res.chat;
   }
 
-  async addChatMessage(payload: AddChatMessageRequest): Promise<AddChatMessageResponse> {
-    this.log.debug(`Sending message to chat ${payload.chat_id} in space ${payload.space_id}...`);
+  async addChatMessage(
+    spaceId: string,
+    chatId: string,
+    body: AddChatMessageBody,
+  ): Promise<AddChatMessageResponse> {
+    this.log.debug(`Sending message to chat ${chatId} in space ${spaceId}...`);
     return this.client.post(
       AddChatMessageResponse,
-      `/v1/spaces/${encodeURIComponent(payload.space_id)}/chats/${encodeURIComponent(payload.chat_id)}/messages`,
-      {
-        text: payload.text,
-        ...(payload.reply_to_message_id
-          ? { reply_to_message_id: payload.reply_to_message_id }
-          : {}),
-      },
+      `/v1/spaces/${encodeURIComponent(spaceId)}/chats/${encodeURIComponent(chatId)}/messages`,
+      body,
+    );
+  }
+
+  async editChatMessage(
+    spaceId: string,
+    chatId: string,
+    messageId: string,
+    body: EditChatMessageBody,
+  ): Promise<EmptyResponse> {
+    this.log.debug(`Editing message ${messageId} in chat ${chatId} (space ${spaceId})...`);
+    return this.client.patch(
+      EmptyResponse,
+      `/v1/spaces/${encodeURIComponent(spaceId)}/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`,
+      body,
+    );
+  }
+
+  async deleteChatMessage(
+    spaceId: string,
+    chatId: string,
+    messageId: string,
+  ): Promise<EmptyResponse> {
+    this.log.debug(`Deleting message ${messageId} from chat ${chatId} in space ${spaceId}...`);
+    return this.client.delete(
+      EmptyResponse,
+      `/v1/spaces/${encodeURIComponent(spaceId)}/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`,
+    );
+  }
+
+  async toggleMessageReaction(
+    spaceId: string,
+    chatId: string,
+    messageId: string,
+    body: ToggleMessageReactionBody,
+  ): Promise<EmptyResponse> {
+    this.log.debug(
+      `Toggling reaction "${body.emoji}" on message ${messageId} in chat ${chatId} (space ${spaceId})...`,
+    );
+    return this.client.post(
+      EmptyResponse,
+      `/v1/spaces/${encodeURIComponent(spaceId)}/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/reactions`,
+      body,
     );
   }
 
@@ -182,12 +226,12 @@ export class AnytypeService {
     return res.data;
   }
 
-  async createType(payload: CreateTypeRequest): Promise<AnytypeType> {
-    this.log.log(`Creating custom type "${payload.name}" in space ${payload.space_id}...`);
+  async createType(spaceId: string, body: CreateTypeBody): Promise<AnytypeType> {
+    this.log.log(`Creating custom type "${body.name}" in space ${spaceId}...`);
     const res = await this.client.post(
       TypeResponse,
-      `/v1/spaces/${encodeURIComponent(payload.space_id)}/types`,
-      payload,
+      `/v1/spaces/${encodeURIComponent(spaceId)}/types`,
+      body,
     );
     return res.type;
   }
