@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import {
   catchError,
   debounceTime,
@@ -14,6 +15,7 @@ import {
   switchMap,
   takeUntil,
 } from "rxjs";
+import type { AppConfig } from "../app.config";
 import { AnytypeService, type Chat } from "../client";
 import type { ChatEvent, ChatMessagePayload } from "../client/types";
 import { LLM_SERVICE } from "../llm/llm.module";
@@ -25,10 +27,18 @@ export class ChatObserverFactory implements ObserverFactory {
   constructor(
     private readonly anytype: AnytypeService,
     @Inject(LLM_SERVICE) private readonly llm: AbstractLlmService,
+    private readonly config: ConfigService<AppConfig, true>,
   ) {}
 
   create(spaceId: string, botName: string): ChatObserver {
-    return new ChatObserver(spaceId, botName, this.anytype, this.llm);
+    return new ChatObserver(
+      spaceId,
+      botName,
+      this.anytype,
+      this.llm,
+      this.config.get("OBSERVER_DEBOUNCE_MS"),
+      this.config.get("OBSERVER_RETRY_DELAY_MS"),
+    );
   }
 }
 
@@ -36,6 +46,8 @@ export class ChatObserverFactory implements ObserverFactory {
 // 1. Эмодзи при получении сообщения "на вход" (может револьверную смену реакций как суррогат лоадера?..)
 // 2. Фиксация запросов к API через Proxy - вот тут короткоживущий токен ой как пригодится
 // 3. Проверить лимиты API на редактирование сообщения по сценарию "ЛЛМ прислала запрос к прокси - мы создали / отредактировали техническое сообщение вида "запрашиваю список тасок""
+// 4. Откат фидбека при ошибке/таймауте LLM: снять лоадер-реакцию / дописать "⚠️" в тех-сообщение в finally-семантике.
+//    Сейчас catchError -> EMPTY глухо молчит — юзер не знает вообще, что бот пытался ответить.
 export class ChatObserver extends AbstractObserver {
   private readonly MAX_HISTORY = 50;
   private readonly history = new Map<string, ChatMessagePayload>();
@@ -45,6 +57,8 @@ export class ChatObserver extends AbstractObserver {
     private readonly botName: string,
     private readonly anytype: AnytypeService,
     private readonly llm: AbstractLlmService,
+    private readonly debounceMs: number,
+    private readonly retryDelayMs: number,
   ) {
     super();
   }
@@ -92,7 +106,7 @@ export class ChatObserver extends AbstractObserver {
       ),
 
       // 3. Дебаунс: склеивает залп стартовых/пользовательских сообщений
-      debounceTime(800),
+      debounceTime(this.debounceMs),
 
       // 4. Пропускаем ровно 1-е событие (стартовый бэкфилл 50 старых сообщений при подключении)
       skip(1),
@@ -137,7 +151,7 @@ export class ChatObserver extends AbstractObserver {
       }),
 
       // 8. Resilience: реконнект при обрыве SSE
-      retry({ delay: 3000 }),
+      retry({ delay: this.retryDelayMs }),
     );
   }
 

@@ -151,6 +151,7 @@ describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
       process.env.ANYTYPE_API_URL = "http://127.0.0.1:31012";
       process.env.ANYTYPE_BOT_NAME = "Bot";
       process.env.ANYTYPE_API_KEY = "token123";
+      process.env.LLM_MODE = "host";
       process.env.HOST_SSH_USER = "testuser";
       process.env.HOST_SSH_KEY_PATH = "/keys/id_ed25519";
       process.env.HOST_CLI_BIN = "claude";

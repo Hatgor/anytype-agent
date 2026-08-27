@@ -204,8 +204,8 @@ export class AnytypeClient {
 
   static async factory(config: ConfigService<AppConfig, true>) {
     const log = new Logger("AnytypeClientFactory");
-    const apiUrl = config.get("ANYTYPE_API_URL", { infer: true });
-    const apiKey = config.get("ANYTYPE_API_KEY", { infer: true });
+    const apiUrl = config.get("ANYTYPE_API_URL");
+    const apiKey = config.get("ANYTYPE_API_KEY");
 
     log.log(`Initializing Anytype client for ${apiUrl}...`);
     const client = new AnytypeClient(log, apiUrl.replace(/\/$/, ""), apiKey);

@@ -14,6 +14,7 @@ describe("AppModule & Standalone Bootstrap", () => {
     process.env.ANYTYPE_API_URL = "http://127.0.0.1:31012";
     process.env.ANYTYPE_BOT_NAME = "NestBot";
     process.env.ANYTYPE_API_KEY = "nest_key_999";
+    process.env.LLM_MODE = "host";
     process.env.HOST_SSH_USER = "testuser";
     process.env.HOST_SSH_KEY_PATH = "/keys/id_ed25519";
     process.env.HOST_CLI_BIN = "claude";
@@ -35,6 +36,7 @@ describe("AppModule & Standalone Bootstrap", () => {
       ANYTYPE_API_URL: "http://127.0.0.1:31012",
       ANYTYPE_BOT_NAME: "DevBot",
       ANYTYPE_API_KEY: "secret_token",
+      LLM_MODE: "host",
       HOST_SSH_USER: "testuser",
       HOST_SSH_KEY_PATH: "/keys/id_ed25519",
       HOST_CLI_BIN: "claude",

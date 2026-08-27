@@ -19,8 +19,8 @@ export class ProxyService implements OnApplicationBootstrap, OnApplicationShutdo
   constructor(private readonly config: ConfigService<AppConfig, true>) {}
 
   onApplicationBootstrap() {
-    const anytypeUrl = this.config.get("ANYTYPE_API_URL", { infer: true });
-    const apiKey = this.config.get("ANYTYPE_API_KEY", { infer: true });
+    const anytypeUrl = this.config.get("ANYTYPE_API_URL");
+    const apiKey = this.config.get("ANYTYPE_API_KEY");
     const logger = this.logger;
 
     try {

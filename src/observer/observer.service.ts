@@ -26,9 +26,9 @@ export class ObserverService implements OnApplicationBootstrap, OnModuleDestroy 
   constructor(
     private readonly anytype: AnytypeService,
     @Inject(OBSERVERS) private readonly observers: ObserverFactory[],
-    config: ConfigService<AppConfig, true>,
+    private readonly config: ConfigService<AppConfig, true>,
   ) {
-    this.botName = config.get("ANYTYPE_BOT_NAME", { infer: true });
+    this.botName = config.get("ANYTYPE_BOT_NAME");
   }
 
   private checkBotPermissions(spaceName: string, members: Member[]): boolean {
@@ -80,15 +80,17 @@ export class ObserverService implements OnApplicationBootstrap, OnModuleDestroy 
       if (!hasBot) continue;
 
       const observers = this.observers.map((factory) => {
-        const observer = factory.create(id, this.botName);
+        return factory.create(id, this.botName);
+      });
+
+      this.registry.set(id, observers);
+
+      for (const observer of observers) {
         observer.run().subscribe({
           next: () => this.lastActivity.set(id, Date.now()),
           error: (err) => this.handleObserverDeath(id, err),
         });
-        return observer;
-      });
-
-      this.registry.set(id, observers);
+      }
     }
 
     for (const spaceId of this.registry.keys()) {
@@ -106,7 +108,7 @@ export class ObserverService implements OnApplicationBootstrap, OnModuleDestroy 
   }
 
   onApplicationBootstrap(): void {
-    this.sub = timer(0, 60 * 1000)
+    this.sub = timer(0, this.config.get("OBSERVER_SCAN_INTERVAL_MS"))
       .pipe(switchMap(() => this.checkSpaces()))
       .subscribe();
   }
