@@ -1,11 +1,12 @@
 import { Module } from "@nestjs/common";
 import { ClientModule } from "../client";
+import { LlmModule } from "../llm/llm.module";
 import { ChatObserverFactory } from "./chat.observer";
 import { OBSERVERS } from "./constants";
 import { ObserverService } from "./observer.service";
 
 @Module({
-  imports: [ClientModule],
+  imports: [ClientModule, LlmModule],
   providers: [
     ChatObserverFactory,
     {

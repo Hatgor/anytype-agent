@@ -200,26 +200,26 @@ export type ChatMessage = Static<typeof ChatMessage>;
 
 export const ChatMessagesResponse = Type.Object(
   {
-    data: Type.Array(ChatMessage),
+    messages: Type.Array(ChatMessage),
     pagination: Type.Optional(PaginationMeta),
   },
   { additionalProperties: true },
 );
 export type ChatMessagesResponse = Static<typeof ChatMessagesResponse>;
 
-export const ChatMessageResponse = Type.Object(
+export const AddChatMessageResponse = Type.Object(
   {
-    message: ChatMessage,
+    message_id: Type.String(),
   },
   { additionalProperties: true },
 );
-export type ChatMessageResponse = Static<typeof ChatMessageResponse>;
+export type AddChatMessageResponse = Static<typeof AddChatMessageResponse>;
 
 export const AddChatMessageRequest = Type.Object({
-  space_id: Type.String(),
-  chat_id: Type.String(),
-  text: Type.String(),
-  reply_to_message_id: Type.Optional(Type.String()),
+  space_id: Type.String({ minLength: 1 }),
+  chat_id: Type.String({ minLength: 1 }),
+  text: Type.String({ minLength: 1 }),
+  reply_to_message_id: Type.Optional(Type.String({ minLength: 1 })),
 });
 export type AddChatMessageRequest = Static<typeof AddChatMessageRequest>;
 

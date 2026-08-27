@@ -11,11 +11,18 @@ services:
   anytype-agent:
     build: .
     environment:
-      - ANYTYPE_API_URL=http://anytype-cli:31012
-      - ANYTYPE_BOT_NAME=GeminiDevBot
-      - ANYTYPE_API_KEY=CX3NvcW5ofQlmF17BKOGjMnBakMtlj6D7qcH+qep+x0=
+      - ANYTYPE_API_URL=${ANYTYPE_API_URL}
+      - ANYTYPE_BOT_NAME=${ANYTYPE_BOT_NAME}
+      - ANYTYPE_API_KEY=${ANYTYPE_API_KEY}
+
+      # Host SSH + AGY
+      - HOST_SSH_USER=${HOST_SSH_USER}
+      - HOST_SSH_KEY_PATH=${HOST_SSH_KEY_PATH}
+      - HOST_CLI_BIN=${HOST_CLI_BIN}
+    # - HOST_SSH_HOST=host.docker.internal
     volumes:
       - ./src:/app/src
+      - ~/.ssh/id_ed25519:/keys/id_ed25519:ro
     depends_on:
       - anytype-cli
     ports:

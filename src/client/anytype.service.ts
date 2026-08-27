@@ -5,11 +5,11 @@ import type { AnytypeClient } from "./anytype.client";
 import { ANYTYPE_CLIENT } from "./client.constants";
 import {
   type AddChatMessageRequest,
+  AddChatMessageResponse,
   type AnytypeObject,
   type AnytypeType,
   type Chat,
   type ChatMessage,
-  ChatMessageResponse,
   ChatMessagesResponse,
   ChatResponse,
   ChatsResponse,
@@ -112,10 +112,10 @@ export class AnytypeService {
     return res.chat;
   }
 
-  async addChatMessage(payload: AddChatMessageRequest): Promise<ChatMessage> {
+  async addChatMessage(payload: AddChatMessageRequest): Promise<AddChatMessageResponse> {
     this.log.debug(`Sending message to chat ${payload.chat_id} in space ${payload.space_id}...`);
-    const res = await this.client.post(
-      ChatMessageResponse,
+    return this.client.post(
+      AddChatMessageResponse,
       `/v1/spaces/${encodeURIComponent(payload.space_id)}/chats/${encodeURIComponent(payload.chat_id)}/messages`,
       {
         text: payload.text,
@@ -124,7 +124,6 @@ export class AnytypeService {
           : {}),
       },
     );
-    return res.message;
   }
 
   async getChatMessages(
@@ -140,7 +139,7 @@ export class AnytypeService {
       ChatMessagesResponse,
       `/v1/spaces/${encodeURIComponent(spaceId)}/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}&offset=${offset}`,
     );
-    return res.data;
+    return res.messages;
   }
 
   subscribeChatMessages(

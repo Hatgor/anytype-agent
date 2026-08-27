@@ -1,11 +1,42 @@
 import { type Static, Type } from "typebox";
+import { Settings } from "typebox/system";
 import Value from "typebox/value";
 
-export const AppConfig = Type.Object({
+Settings.Set({ correctiveParse: true });
+
+// Общие обязательные поля для любого режима
+export const BaseConfig = Type.Object({
   ANYTYPE_API_URL: Type.String({ minLength: 1 }),
   ANYTYPE_BOT_NAME: Type.String({ minLength: 1 }),
   ANYTYPE_API_KEY: Type.String({ minLength: 1 }),
 });
+export type BaseConfig = Static<typeof BaseConfig>;
+
+// Конфиг №1: Host (SSH / CLI) Режим
+export const HostConfig = Type.Intersect([
+  BaseConfig,
+  Type.Object({
+    HOST_SSH_USER: Type.String({ minLength: 1 }),
+    HOST_SSH_KEY_PATH: Type.String({ minLength: 1 }),
+    HOST_CLI_BIN: Type.String({ minLength: 1 }),
+    HOST_SSH_HOST: Type.String({ default: "host.docker.internal" }),
+  }),
+]);
+export type HostConfig = Static<typeof HostConfig>;
+
+// Конфиг №2: API (BYOK / OpenAI) Режим
+export const ApiConfig = Type.Intersect([
+  BaseConfig,
+  Type.Object({
+    OPENAI_API_KEY: Type.String({ minLength: 1 }),
+    OPENAI_BASE_URL: Type.Optional(Type.String()),
+    OPENAI_MODEL: Type.Optional(Type.String()),
+  }),
+]);
+export type ApiConfig = Static<typeof ApiConfig>;
+
+// Итоговый Discriminated Union
+export const AppConfig = Type.Union([HostConfig, ApiConfig]);
 export type AppConfig = Static<typeof AppConfig>;
 
 export function validateConfig(config: Record<string, unknown>): AppConfig {
