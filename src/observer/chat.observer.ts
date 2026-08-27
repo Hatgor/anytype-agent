@@ -32,6 +32,10 @@ export class ChatObserverFactory implements ObserverFactory {
   }
 }
 
+// TODO: Подумать над обратной связью
+// 1. Эмодзи при получении сообщения "на вход" (может револьверную смену реакций как суррогат лоадера?..)
+// 2. Фиксация запросов к API через Proxy - вот тут короткоживущий токен ой как пригодится
+// 3. Проверить лимиты API на редактирование сообщения по сценарию "ЛЛМ прислала запрос к прокси - мы создали / отредактировали техническое сообщение вида "запрашиваю список тасок""
 export class ChatObserver extends AbstractObserver {
   private readonly MAX_HISTORY = 50;
   private readonly history = new Map<string, ChatMessagePayload>();
@@ -43,18 +47,13 @@ export class ChatObserver extends AbstractObserver {
     private readonly llm: AbstractLlmService,
   ) {
     super();
+  }
 
-    this.getOrCreateChat()
-      .pipe(
-        switchMap((chat) => this.subscribeToChat(chat.id)),
-        takeUntil(this.destroy$),
-      )
-      //TODO: тут надо избавиться от внешнего subscribe
-      // и сделать обсервабл горячим
-      // (ну или просто подписываться на него внутри)
-      .subscribe((result) => {
-        if (result) this.events$.next(result);
-      });
+  run(): Observable<void> {
+    return this.getOrCreateChat().pipe(
+      switchMap((chat) => this.subscribeToChat(chat.id)),
+      takeUntil(this.destroy$),
+    );
   }
 
   private getOrCreateChat(): Observable<Chat> {
@@ -79,7 +78,7 @@ export class ChatObserver extends AbstractObserver {
     );
   }
 
-  private subscribeToChat(chatId: string): Observable<AgentEvent | null> {
+  private subscribeToChat(chatId: string): Observable<void> {
     return this.anytype.subscribeChatMessages(this.spaceId, chatId).pipe(
       filter((msg) => msg !== null),
       map((msg) => this.handleHistory(msg)),
@@ -113,6 +112,7 @@ export class ChatObserver extends AbstractObserver {
       exhaustMap((event) => {
         this.logger.log(`💬 Generating LLM response for chat ${chatId}...`);
 
+        // TODO: вынести в отдельную функцию
         return from(this.llm.generateResponse(event)).pipe(
           map((text) => text?.trim()),
           // Защита: пропускаем только непустые строки ответа
@@ -127,11 +127,11 @@ export class ChatObserver extends AbstractObserver {
               }),
             ),
           ),
-          map(() => event),
+          map(() => undefined),
           catchError((err) => {
             const msg = err instanceof Error ? err.message : String(err);
             this.logger.error(`❌ LLM response failed: ${msg}`);
-            return of(null);
+            return EMPTY;
           }),
         );
       }),

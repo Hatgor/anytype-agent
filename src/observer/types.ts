@@ -1,5 +1,5 @@
 import { Logger } from "@nestjs/common";
-import { Subject } from "rxjs";
+import { type Observable, Subject } from "rxjs";
 
 export type AgentEvent = any;
 
@@ -11,8 +11,13 @@ export abstract class AbstractObserver {
   protected readonly logger = new Logger(this.constructor.name);
   protected readonly destroy$ = new Subject<void>();
 
-  protected readonly events$ = new Subject<AgentEvent>();
-  public readonly events = this.events$.asObservable();
+  /**
+   * Жизненный цикл актора:
+   *  next     — один удар на каждый отправленный ответ бота (heartbeat)
+   *  error    — фатальная смерть обсервера; политика (гасить спейс) — на стороне сервиса
+   *  complete — плановое выключение через destroy()
+   */
+  abstract run(): Observable<void>;
 
   public destroy(): void {
     this.destroy$.next();

@@ -36,7 +36,9 @@ export class HostModelService extends AbstractLlmService {
       `🤖 [HostModel] Executing host agent via SSH (prompt length: ${prompt.length} chars)...`,
     );
 
-    // TODO: Это флаги специфичные для Antigravity CLI... Неужели придется делать по сервису на каждый инструмент...
+    // TODO: Это флаги специфичные для Antigravity CLI...
+    // Неужели придется делать по сервису на каждый инструмент...
+    // TODO: передавать конфиг в аргументах чтобы Agy использовал самую быструю модель
 
     // Флаги:
     // --dangerously-skip-permissions: разрешает headless вызовы инструментов (curl к прокси) без висения на TTY

@@ -6,12 +6,12 @@ import {
   type OnModuleDestroy,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Subject, type Subscription, switchMap, timer } from "rxjs";
+import { type Subscription, switchMap, timer } from "rxjs";
 import type { AppConfig } from "../app.config";
 import type { Member } from "../client";
 import { AnytypeService } from "../client/anytype.service";
 import { OBSERVERS } from "./constants";
-import type { AbstractObserver, AgentEvent, ObserverFactory } from "./types";
+import type { AbstractObserver, ObserverFactory } from "./types";
 
 const WRITE_ROLES = new Set(["editor", "admin", "owner"]);
 
@@ -21,10 +21,7 @@ export class ObserverService implements OnApplicationBootstrap, OnModuleDestroy 
   private readonly botName: string;
   private sub: Subscription | undefined;
   private readonly registry = new Map<string, AbstractObserver[]>();
-
-  // TODO: Надо все-таки определиться с интерфейсом AgentEvent
-  private readonly events$ = new Subject<AgentEvent>();
-  public readonly events = this.events$.asObservable();
+  private readonly lastActivity = new Map<string, number>();
 
   constructor(
     private readonly anytype: AnytypeService,
@@ -56,6 +53,19 @@ export class ObserverService implements OnApplicationBootstrap, OnModuleDestroy 
     }
   }
 
+  private handleObserverDeath(spaceId: string, err: unknown): void {
+    const observers = this.registry.get(spaceId);
+    if (!observers) return;
+
+    const msg = err instanceof Error ? err.message : String(err);
+    this.log.error(`❌ Fatal observer failure in space "${spaceId}": ${msg}`);
+
+    for (const obs of observers) {
+      obs.destroy();
+    }
+    this.registry.delete(spaceId);
+  }
+
   private async checkSpaces() {
     const spaces = await this.anytype.getSpacesWithMembers();
     const activeSpaceIds = new Set<string>();
@@ -69,15 +79,11 @@ export class ObserverService implements OnApplicationBootstrap, OnModuleDestroy 
       const hasBot = this.checkBotPermissions(name, members);
       if (!hasBot) continue;
 
-      // TODO: Надо как-то обрабатывать ситуации когда один обсервер отвалился, но остальные живы.
-      // Кажется мне нужен отдельный флоу который будет брать заранее заготовленный список обсерверов "к инициализации" и применять его.
-      // То есть флоу становится двухфазным - сначала идем по списку спейсов, потом для каждого спейса - по списку обсерверов. Черт.
       const observers = this.observers.map((factory) => {
         const observer = factory.create(id, this.botName);
-        observer.events.subscribe({
-          next: (event) => this.events$.next(event),
-          error: (err) => this.log.error(`Error in observer: ${err}`),
-          complete: () => this.log.debug(`Chat observer completed`),
+        observer.run().subscribe({
+          next: () => this.lastActivity.set(id, Date.now()),
+          error: (err) => this.handleObserverDeath(id, err),
         });
         return observer;
       });
@@ -106,7 +112,6 @@ export class ObserverService implements OnApplicationBootstrap, OnModuleDestroy 
   }
 
   onModuleDestroy(): void {
-    this.events$.complete();
     this.registry.forEach((observers) => {
       observers.forEach((observer) => {
         observer.destroy();
