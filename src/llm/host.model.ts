@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { $ } from "bun";
+import { defer, type Observable } from "rxjs";
 import type { HostConfig } from "../app.config";
 import type { AgentEvent } from "../observer/types";
 import { buildHostPrompt } from "./prompts/host";
@@ -29,35 +30,39 @@ export class HostModelService extends AbstractLlmService {
     this.logger.log(`✅ [HostModel] Host agent "${this.cliBin}" verified successfully`);
   }
 
-  async generateResponse(event: AgentEvent): Promise<string> {
-    const prompt = buildHostPrompt(event, this.config.get("ANYTYPE_BOT_NAME"));
+  generateResponse(event: AgentEvent): Observable<string> {
+    return defer(async () => {
+      const prompt = buildHostPrompt(event, this.config.get("ANYTYPE_BOT_NAME"));
 
-    this.logger.log(
-      `🤖 [HostModel] Executing host agent via SSH (prompt length: ${prompt.length} chars)...`,
-    );
-
-    // TODO: Это флаги специфичные для Antigravity CLI...
-    // Неужели придется делать по сервису на каждый инструмент...
-    // TODO: передавать конфиг в аргументах чтобы Agy использовал самую быструю модель
-
-    // Флаги:
-    // --dangerously-skip-permissions: разрешает headless вызовы инструментов (curl к прокси) без висения на TTY
-    // --disable-slash-commands: защищает URL-пути /v1/spaces от парсера слэш-команд
-    // $(cat) безопасно считывает промпт из STDIN без base64 и шелл-экранирования
-    const remoteCommand = `export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"; ${this.cliBin} -p "$(cat)" --dangerously-skip-permissions --disable-slash-commands`;
-
-    const { stdout, stderr } = await this.execRemote(remoteCommand, prompt, 120_000);
-
-    const trimmed = stdout.trim();
-    if (!trimmed) {
-      this.logger.error(`❌ [HostModel] Empty LLM response! Stderr output:\n${stderr || "<none>"}`);
-      throw new LlmEmptyResponseError(
-        `LLM process exited cleanly (code 0) but returned empty stdout. Stderr: ${stderr || "empty"}`,
+      this.logger.log(
+        `🤖 [HostModel] Executing host agent via SSH (prompt length: ${prompt.length} chars)...`,
       );
-    }
 
-    this.logger.log(`✅ [HostModel] Response received (${trimmed.length} characters)`);
-    return trimmed;
+      // TODO: Это флаги специфичные для Antigravity CLI...
+      // Неужели придется делать по сервису на каждый инструмент...
+      // TODO: передавать конфиг в аргументах чтобы Agy использовал самую быструю модель
+
+      // Флаги:
+      // --dangerously-skip-permissions: разрешает headless вызовы инструментов (curl к прокси) без висения на TTY
+      // --disable-slash-commands: защищает URL-пути /v1/spaces от парсера слэш-команд
+      // $(cat) безопасно считывает промпт из STDIN без base64 и шелл-экранирования
+      const remoteCommand = `export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"; ${this.cliBin} -p "$(cat)" --dangerously-skip-permissions --disable-slash-commands`;
+
+      const { stdout, stderr } = await this.execRemote(remoteCommand, prompt, 120_000);
+
+      const trimmed = stdout.trim();
+      if (!trimmed) {
+        this.logger.error(
+          `❌ [HostModel] Empty LLM response! Stderr output:\n${stderr || "<none>"}`,
+        );
+        throw new LlmEmptyResponseError(
+          `LLM process exited cleanly (code 0) but returned empty stdout. Stderr: ${stderr || "empty"}`,
+        );
+      }
+
+      this.logger.log(`✅ [HostModel] Response received (${trimmed.length} characters)`);
+      return trimmed;
+    });
   }
 
   private async execRemote(

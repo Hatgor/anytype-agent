@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { ConfigModule } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
+import { of } from "rxjs";
 import { validateConfig } from "../../app.config";
 import { HostModelService } from "../../llm/host.model";
 import { ObserverModule } from "../observer.module";
@@ -60,7 +61,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     // Мокаем вызовы LLM до compile(), чтобы не стрелять в реальный SSH/CLI
     initSpy = spyOn(HostModelService.prototype, "init").mockResolvedValue();
     generateResponseSpy = spyOn(HostModelService.prototype, "generateResponse").mockImplementation(
-      async () => "  Bot reply  ",
+      () => of("  Bot reply  "),
     );
 
     // Начальные ответы Anytype API

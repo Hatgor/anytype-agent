@@ -18,6 +18,7 @@ export const ChatMessagePayload = Type.Object({
     text: Type.String(),
     style: Type.String(),
   }),
+  // TODO: define attachments type later
   attachments: Type.Array(Type.Unknown()),
   reactions: ChatReactions,
   pinned: Type.Boolean(),

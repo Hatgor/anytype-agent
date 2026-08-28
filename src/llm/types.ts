@@ -1,3 +1,4 @@
+import type { Observable } from "rxjs";
 import type { AgentEvent } from "../observer/types";
 
 export abstract class AbstractLlmService {
@@ -10,5 +11,5 @@ export abstract class AbstractLlmService {
   /**
    * Генерация текстового ответа на событие от обсервера.
    */
-  abstract generateResponse(event: AgentEvent): Promise<string>;
+  abstract generateResponse(event: AgentEvent): Observable<string>;
 }

@@ -142,7 +142,7 @@ export class ChatObserver extends AbstractObserver {
         this.logger.log(`💬 Generating LLM response for chat ${chatId}...`);
 
         // TODO: вынести в отдельную функцию
-        return from(this.llm.generateResponse(event)).pipe(
+        return this.llm.generateResponse(event).pipe(
           map((text) => text?.trim()),
           // Защита: пропускаем только непустые строки ответа
           filter((replyText): replyText is string => Boolean(replyText && replyText.length > 0)),

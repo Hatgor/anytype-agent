@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, expect, it, mock } from "bun:test";
-import { defer, type Observable, Subject } from "rxjs";
+import { defer, type Observable, of, Subject, throwError } from "rxjs";
 import type { AnytypeService, Chat } from "../../client";
 import type { ChatEvent, ChatMessagePayload } from "../../client/types";
 import type { AbstractLlmService } from "../../llm/types";
@@ -12,7 +12,7 @@ describe("ChatObserver (Unit Tests)", () => {
   const setup = (
     options: {
       getChats?: () => Promise<Chat[]>;
-      llmResponse?: string | Promise<string> | (() => Promise<string>);
+      llmResponse?: string | ((event: AgentEvent) => Observable<string>);
       debounceMs?: number;
       retryDelayMs?: number;
     } = {},
@@ -38,13 +38,10 @@ describe("ChatObserver (Unit Tests)", () => {
       }),
     } as unknown as AnytypeService;
 
-    let llmHandler: (event: AgentEvent) => Promise<string>;
-    if (typeof options.llmResponse === "function") {
-      llmHandler = options.llmResponse as (event: AgentEvent) => Promise<string>;
-    } else {
-      const responseValue = options.llmResponse ?? "  Bot reply  ";
-      llmHandler = async () => responseValue;
-    }
+    const llmHandler: (event: AgentEvent) => Observable<string> =
+      typeof options.llmResponse === "function"
+        ? options.llmResponse
+        : () => of(typeof options.llmResponse === "string" ? options.llmResponse : "  Bot reply  ");
 
     const llmFake = {
       init: mock(async () => {}),
@@ -229,9 +226,9 @@ describe("ChatObserver (Unit Tests)", () => {
   it("7. Пустой ответ LLM ('' и '   ') -> addChatMessage не вызывался, heartbeat не бился, поток жив", async () => {
     let count = 0;
     const { ready, pushEvent, anytypeFake, nextEvents } = setup({
-      llmResponse: async () => {
+      llmResponse: () => {
         count++;
-        return count === 1 ? "   " : "Valid reply";
+        return of(count === 1 ? "   " : "Valid reply");
       },
     });
 
@@ -257,10 +254,10 @@ describe("ChatObserver (Unit Tests)", () => {
   it("8. LLM кидает ошибку -> addChatMessage не вызывался, heartbeat не бился, поток жив (последующий триггер работает)", async () => {
     let count = 0;
     const { ready, pushEvent, anytypeFake, nextEvents } = setup({
-      llmResponse: async () => {
+      llmResponse: () => {
         count++;
-        if (count === 1) throw new Error("LLM boom");
-        return "Recovered reply";
+        if (count === 1) return throwError(() => new Error("LLM boom"));
+        return of("Recovered reply");
       },
     });
 
