@@ -1,15 +1,42 @@
+import { Logger } from "@nestjs/common";
 import type { Observable } from "rxjs";
-import type { AgentEvent } from "../observer/types";
-
 export abstract class AbstractLlmService {
+  protected readonly logger = new Logger(this.constructor.name);
+
   /**
    * Инициализация и проверка доступности LLM провайдера (SSH, API-ключи, CLI).
    * Вызывается при старте приложения для быстрого падения при ошибках конфигурации.
    */
   abstract init(): Promise<void>;
 
-  /**
-   * Генерация текстового ответа на событие от обсервера.
-   */
-  abstract generateResponse(event: AgentEvent): Observable<string>;
+  abstract run(spaceId: string, payload: object): Observable<LlmEvent>;
 }
+
+export type LlmApiTrace = {
+  alias: string;
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+  error?: string;
+};
+
+export class LlmAction {
+  type = "ACT";
+  detail = "";
+
+  static create(detail: string): LlmAction {
+    return Object.assign(new LlmAction(), { detail });
+  }
+}
+
+export class LlmResponse {
+  type = "RES";
+  text = "";
+
+  static create(text: string): LlmResponse {
+    return Object.assign(new LlmResponse(), { text });
+  }
+}
+
+export type LlmEvent = LlmAction | LlmResponse;

@@ -1,11 +1,36 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { randomInt } from "node:crypto";
+import { Injectable, type OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { $ } from "bun";
-import { defer, type Observable } from "rxjs";
+import {
+  catchError,
+  defer,
+  EMPTY,
+  endWith,
+  filter,
+  finalize,
+  firstValueFrom,
+  from,
+  ignoreElements,
+  map,
+  merge,
+  type Observable,
+  of,
+  Subject,
+  share,
+  switchMap,
+  takeUntil,
+  tap,
+} from "rxjs";
 import type { HostConfig } from "../app.config";
-import type { AgentEvent } from "../observer/types";
 import { buildHostPrompt } from "./prompts/host";
-import { AbstractLlmService } from "./types";
+import {
+  AbstractLlmService,
+  LlmAction,
+  type LlmApiTrace,
+  type LlmEvent,
+  LlmResponse,
+} from "./types";
 
 export class LlmEmptyResponseError extends Error {
   constructor(message = "LLM returned empty or whitespace-only response") {
@@ -15,9 +40,11 @@ export class LlmEmptyResponseError extends Error {
 }
 
 @Injectable()
-export class HostModelService extends AbstractLlmService {
-  private readonly logger = new Logger(HostModelService.name);
+export class HostModelService extends AbstractLlmService implements OnModuleDestroy {
+  private server?: ReturnType<typeof Bun.serve>;
+  private readonly traces$ = new Subject<LlmApiTrace>();
   private readonly cliBin: string;
+  private readonly spaceAliases = new Map<string, string>();
 
   constructor(private readonly config: ConfigService<HostConfig, true>) {
     super();
@@ -25,18 +52,44 @@ export class HostModelService extends AbstractLlmService {
   }
 
   async init(): Promise<void> {
-    this.logger.log(`🔍 [HostModel] Verifying host agent availability ("${this.cliBin}")...`);
+    this.logger.log(`🔍 Verifying host agent availability ("${this.cliBin}")...`);
     await this.execRemote(`${this.cliBin} --help`, undefined, 15_000);
-    this.logger.log(`✅ [HostModel] Host agent "${this.cliBin}" verified successfully`);
+    this.logger.log(`✅ Host agent "${this.cliBin}" verified successfully`);
+
+    this.startProxy();
+    this.logger.log(`✅ Proxy started`);
   }
 
-  generateResponse(event: AgentEvent): Observable<string> {
-    return defer(async () => {
-      const prompt = buildHostPrompt(event, this.config.get("ANYTYPE_BOT_NAME"));
+  run(spaceId: string, payload: object): Observable<LlmEvent> {
+    const alias = this.issueSpaceAlias(spaceId);
 
-      this.logger.log(
-        `🤖 [HostModel] Executing host agent via SSH (prompt length: ${prompt.length} chars)...`,
+    const response$ = this.getResponse(payload, alias).pipe(share());
+    const done$ = response$.pipe(ignoreElements(), endWith(null));
+
+    const traces$: Observable<LlmAction> = this.traces$.pipe(
+      filter((t) => t.alias === alias),
+      map((t) => LlmAction.create(`${t.method} ${t.path.split(alias)[1] || "/"} → ${t.status}`)),
+      catchError(() => EMPTY), // телеметрия не роняет джобу
+      takeUntil(done$), // ответ получен → телеметрия стоп
+    );
+
+    return merge(
+      traces$,
+      response$.pipe(map((text) => LlmResponse.create(text))),
+      // keep multiline
+    ).pipe(finalize(() => this.revokeSpaceAlias(alias)));
+  }
+
+  private getResponse(event: object, spaceAlias: string): Observable<string> {
+    return defer(async () => {
+      const prompt = buildHostPrompt(
+        event,
+        this.config.get("ANYTYPE_BOT_NAME"),
+        "http://host.docker.internal:31013",
+        spaceAlias,
       );
+
+      this.logger.log(`🤖 Executing host agent via SSH (prompt length: ${prompt.length} chars)...`);
 
       // TODO: Это флаги специфичные для Antigravity CLI...
       // Неужели придется делать по сервису на каждый инструмент...
@@ -52,15 +105,13 @@ export class HostModelService extends AbstractLlmService {
 
       const trimmed = stdout.trim();
       if (!trimmed) {
-        this.logger.error(
-          `❌ [HostModel] Empty LLM response! Stderr output:\n${stderr || "<none>"}`,
-        );
+        this.logger.error(`❌ Empty LLM response! Stderr output:\n${stderr || "<none>"}`);
         throw new LlmEmptyResponseError(
           `LLM process exited cleanly (code 0) but returned empty stdout. Stderr: ${stderr || "empty"}`,
         );
       }
 
-      this.logger.log(`✅ [HostModel] Response received (${trimmed.length} characters)`);
+      this.logger.log(`✅ Response received (${trimmed.length} characters)`);
       return trimmed;
     });
   }
@@ -106,6 +157,117 @@ export class HostModelService extends AbstractLlmService {
       if (timer) {
         clearTimeout(timer);
       }
+    }
+  }
+
+  /**
+   * Захват ресурса: выделяем уникальный 6-значный алиас
+   */
+  private issueSpaceAlias(spaceId: string): string {
+    let alias: string;
+    do {
+      alias = randomInt(100_000, 1_000_000).toString();
+    } while (this.spaceAliases.has(alias));
+
+    this.spaceAliases.set(alias, spaceId);
+    return alias;
+  }
+
+  /**
+   * Освобождение ресурса
+   */
+  private revokeSpaceAlias(alias: string): void {
+    this.spaceAliases.delete(alias);
+  }
+
+  private readonly ALIAS_REGEX = /^\/v1\/spaces\/(\d{6})(\/.*)?$/;
+  private parseAlias(pathname: string): string | null {
+    const match = this.ALIAS_REGEX.exec(pathname);
+    return match?.[1] ?? null;
+  }
+
+  private proxyRequest$(req: Request): Observable<Response> {
+    return of({ req, startTime: performance.now() }).pipe(
+      map(({ req, startTime }) => {
+        const url = new URL(req.url);
+        const alias = this.parseAlias(url.pathname);
+        const spaceId = alias ? this.spaceAliases.get(alias) : null;
+
+        if (!alias || !spaceId) throw this.NOT_FOUND;
+
+        const targetUrl = `${this.config.get("ANYTYPE_API_URL")}${url.pathname.replace(alias, spaceId)}${url.search}`;
+        const headers = new Headers(req.headers);
+        headers.set("Authorization", `Bearer ${this.config.get("ANYTYPE_API_KEY")}`);
+        headers.set("Anytype-Version", "2025-11-08");
+
+        return { req, alias, targetUrl, headers, startTime };
+      }),
+      switchMap((ctx) => {
+        const {
+          req: { method, body },
+          targetUrl,
+          headers,
+        } = ctx;
+
+        return from(
+          fetch(targetUrl, {
+            method,
+            headers,
+            body,
+          }),
+        ).pipe(map((res) => ({ ...ctx, res })));
+      }),
+      tap(({ alias, req, res, startTime }) => {
+        this.traces$.next({
+          alias,
+          method: req.method,
+          path: new URL(req.url).pathname,
+          status: res.status,
+          durationMs: performance.now() - startTime,
+        });
+      }),
+      map(({ res }) => res),
+      catchError((err) => {
+        if (err instanceof Response) {
+          this.logger.warn(
+            `⚠️ Proxy rejected [${err.status}]: ${req.method} ${new URL(req.url).pathname}`,
+          );
+          return of(err);
+        }
+
+        this.logger.error(`❌ Proxy error: ${err instanceof Error ? err.message : String(err)}`);
+        return of(new Response(null, { status: 500 }));
+      }),
+    );
+  }
+
+  private startProxy() {
+    const anytypeUrl = this.config.get("ANYTYPE_API_URL");
+
+    try {
+      this.server = Bun.serve({
+        port: 31013,
+        fetch: (req) => firstValueFrom(this.proxyRequest$(req)),
+      });
+
+      this.logger.log(`🚀 Started reverse proxy on http://127.0.0.1:31013 -> ${anytypeUrl}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`⚠️ Could not start proxy on port 31013: ${msg}`);
+    }
+  }
+
+  private get NOT_FOUND(): Response {
+    return new Response(JSON.stringify({ error: "not found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  onModuleDestroy() {
+    if (this.server) {
+      this.server.stop();
+      this.logger.log(`🛑 [ProxyService] Proxy stopped`);
     }
   }
 }

@@ -3,7 +3,6 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import type { AppConfig } from "../app.config";
 import { ClientModule } from "../client";
 import { HostModelService } from "./host.model";
-import { ProxyService } from "./proxy.service";
 import { AbstractLlmService } from "./types";
 
 export const LLM_SERVICE = Symbol.for("LLM_SERVICE");
@@ -11,9 +10,6 @@ export const LLM_SERVICE = Symbol.for("LLM_SERVICE");
 @Module({
   imports: [ConfigModule, ClientModule],
   providers: [
-    // TODO: Прокси имеет смысл только если мы в HOST режиме
-    // Значит нет смысла регать его ВСЕГДА. Но это требует DynamicModule кажись
-    ProxyService,
     HostModelService,
     // ApiModelService,
     {
@@ -38,6 +34,6 @@ export const LLM_SERVICE = Symbol.for("LLM_SERVICE");
       },
     },
   ],
-  exports: [LLM_SERVICE, ProxyService],
+  exports: [LLM_SERVICE],
 })
 export class LlmModule {}

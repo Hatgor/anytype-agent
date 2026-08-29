@@ -19,8 +19,8 @@ import type { AppConfig } from "../app.config";
 import { AnytypeService, type Chat } from "../client";
 import type { ChatEvent, ChatMessagePayload } from "../client/types";
 import { LLM_SERVICE } from "../llm/llm.module";
-import { AbstractLlmService } from "../llm/types";
-import { AbstractObserver, type AgentEvent, type ObserverFactory } from "./types";
+import { AbstractLlmService, LlmAction, LlmResponse } from "../llm/types";
+import { AbstractObserver, type ObserverFactory } from "./types";
 
 @Injectable()
 export class ChatObserverFactory implements ObserverFactory {
@@ -63,7 +63,7 @@ export class ChatObserver extends AbstractObserver {
     super();
   }
 
-  run(): Observable<void> {
+  run(): Observable<unknown> {
     return this.getOrCreateChat().pipe(
       switchMap((chat) => this.subscribeToChat(chat.id)),
       takeUntil(this.destroy$),
@@ -91,7 +91,7 @@ export class ChatObserver extends AbstractObserver {
     );
   }
 
-  private subscribeToChat(chatId: string): Observable<void> {
+  private subscribeToChat(chatId: string) {
     return this.anytype.subscribeChatMessages(this.spaceId, chatId).pipe(
       filter((msg) => msg !== null),
       map((msg) => this.handleHistory(msg)),
@@ -127,34 +127,27 @@ export class ChatObserver extends AbstractObserver {
       skip(1),
 
       // 5. Формируем событие для LLM
-      map(
-        (): AgentEvent => ({
-          source: "chat",
-          spaceId: this.spaceId,
-          chatId,
-          payload: Array.from(this.history.values()),
-          timestamp: Date.now(),
-        }),
-      ),
+      map(() => ({
+        spaceId: this.spaceId,
+        payload: Array.from(this.history.values()),
+      })),
 
       // 6. 🛑 exhaustMap: пока LLM генерирует ответ — новые триггеры игнорируются
-      exhaustMap((event) => {
+      exhaustMap(({ spaceId, payload }) => {
         this.logger.log(`💬 Generating LLM response for chat ${chatId}...`);
 
         // TODO: вынести в отдельную функцию
-        return this.llm.generateResponse(event).pipe(
-          map((text) => text?.trim()),
-          // Защита: пропускаем только непустые строки ответа
-          filter((replyText): replyText is string => Boolean(replyText && replyText.length > 0)),
-          // 7. Отправляем ответ в чат Anytype
-          switchMap((validReplyText) =>
-            from(
-              this.anytype.addChatMessage(this.spaceId, chatId, {
-                text: validReplyText,
-              }),
-            ),
-          ),
-          map(() => undefined),
+        return this.llm.run(spaceId, payload).pipe(
+          switchMap((event) => {
+            switch (true) {
+              case event instanceof LlmAction:
+                return this.handleLlmAction(chatId, event);
+              case event instanceof LlmResponse:
+                return this.handleLlmResponse(chatId, event);
+              default:
+                return EMPTY;
+            }
+          }),
           catchError((err) => {
             const msg = err instanceof Error ? err.message : String(err);
             this.logger.error(`❌ LLM response failed: ${msg}`);
@@ -167,6 +160,24 @@ export class ChatObserver extends AbstractObserver {
       retry({ delay: this.retryDelayMs }),
     );
   }
+
+  // TODO: создавать в рамках ответа TechMessage, группировать LlmAction как EDIT этого Message
+  // TODO: удалять TechMessage после обработки LlmResponse
+  private readonly handleLlmAction = (chatId: string, { detail }: LlmAction) => {
+    const prefix = "⚡ LLM action: ";
+    const text = `${prefix}${detail}`;
+
+    return from(
+      this.anytype.addChatMessage(this.spaceId, chatId, {
+        text,
+        marks: [{ type: "italic", from: prefix.length, to: text.length }],
+      }),
+    );
+  };
+
+  private readonly handleLlmResponse = (chatId: string, { text }: LlmResponse) => {
+    return from(this.anytype.addChatMessage(this.spaceId, chatId, { text }));
+  };
 
   private readonly handleHistory = (msg: ChatEvent) => {
     switch (msg.type) {

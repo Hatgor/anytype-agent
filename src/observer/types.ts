@@ -17,7 +17,7 @@ export abstract class AbstractObserver {
    *  error    — фатальная смерть обсервера; политика (гасить спейс) — на стороне сервиса
    *  complete — плановое выключение через destroy()
    */
-  abstract run(): Observable<void>;
+  abstract run(): Observable<unknown>;
 
   public destroy(): void {
     this.destroy$.next();
