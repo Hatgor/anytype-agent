@@ -107,6 +107,7 @@ export class ChatObserver extends AbstractObserver {
 
       // 2. Триггер — только чужие message_added:
       //    анти-эхо (игнор бота); правки, удаления и реакции LLM не будят
+      // TODO: фильтровать сообщения без @BotName (без mention)
       filter(
         (msg) =>
           msg.type === "message_added" &&
@@ -176,7 +177,10 @@ export class ChatObserver extends AbstractObserver {
   };
 
   private readonly handleLlmResponse = (chatId: string, { text }: LlmResponse) => {
-    return from(this.anytype.addChatMessage(this.spaceId, chatId, { text }));
+    const trimmed = text.trim();
+    if (!trimmed) return EMPTY;
+
+    return from(this.anytype.addChatMessage(this.spaceId, chatId, { text: trimmed }));
   };
 
   private readonly handleHistory = (msg: ChatEvent) => {

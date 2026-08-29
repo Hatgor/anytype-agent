@@ -5,6 +5,7 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { of } from "rxjs";
 import { validateConfig } from "../../app.config";
 import { HostModelService } from "../../llm/host.model";
+import { LlmResponse } from "../../llm/types";
 import { ObserverModule } from "../observer.module";
 import { ObserverService } from "../observer.service";
 import {
@@ -24,7 +25,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
   let internals: ObserverServiceInternals;
 
   let initSpy: ReturnType<typeof spyOn>;
-  let generateResponseSpy: ReturnType<typeof spyOn>;
+  let runSpy: ReturnType<typeof spyOn>;
   let fetchSpy: ReturnType<typeof spyOn>;
 
   // Изменяемое состояние для роутинга фейкового Anytype API
@@ -33,7 +34,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
   let chatsMap: Record<string, Array<{ id: string; name: string }>> = {};
   let chatsStatus = 200;
 
-  const postMessageCalls: Array<{ space_id: string; chat_id: string; text: string }> = [];
+  const postMessageCalls: Array<{ space_id: string; chat_id: string; text?: string }> = [];
   const sseControllers: ReadableStreamDefaultController<Uint8Array>[] = [];
   const encoder = new TextEncoder();
 
@@ -60,8 +61,8 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
 
     // Мокаем вызовы LLM до compile(), чтобы не стрелять в реальный SSH/CLI
     initSpy = spyOn(HostModelService.prototype, "init").mockResolvedValue();
-    generateResponseSpy = spyOn(HostModelService.prototype, "generateResponse").mockImplementation(
-      () => of("  Bot reply  "),
+    runSpy = spyOn(HostModelService.prototype, "run").mockImplementation(() =>
+      of(LlmResponse.create("  Bot reply  ")),
     );
 
     // Начальные ответы Anytype API
@@ -159,7 +160,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     await testingModule?.close();
     fetchSpy?.mockRestore();
     initSpy?.mockRestore();
-    generateResponseSpy?.mockRestore();
+    runSpy?.mockRestore();
     process.env = originalEnv;
   });
 
@@ -179,7 +180,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     const controller = sseControllers[sseControllers.length - 1];
     if (!controller) throw new Error("SSE controller not found");
 
-    const initialLlmCalls = callCount(generateResponseSpy);
+    const initialLlmCalls = callCount(runSpy);
 
     // 1. Стартовый бэкфилл (skip 1)
     pushSseEvent(controller, "message_added", {
@@ -195,7 +196,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     });
 
     // Ждём вызов LLM
-    await waitFor(() => callCount(generateResponseSpy) === initialLlmCalls + 1);
+    await waitFor(() => callCount(runSpy) === initialLlmCalls + 1);
 
     // Ждём отправку сообщения в чат Anytype
     await waitFor(() => postMessageCalls.length >= 1);
@@ -210,10 +211,10 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     expect(typeof internals.lastActivity.get("sp_main")).toBe("number");
   });
 
-  it("4. Анти-эхо: enqueue message_added от TestBot -> generateResponse не вызывается", async () => {
+  it("4. Анти-эхо: enqueue message_added от TestBot -> run не вызывается", async () => {
     const controller = sseControllers[sseControllers.length - 1];
     if (!controller) throw new Error("SSE controller not found");
-    const initialLlmCalls = callCount(generateResponseSpy);
+    const initialLlmCalls = callCount(runSpy);
 
     pushSseEvent(controller, "message_added", {
       type: "message_added",
@@ -225,7 +226,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     });
 
     await sleep(50);
-    expect(callCount(generateResponseSpy)).toBe(initialLlmCalls);
+    expect(callCount(runSpy)).toBe(initialLlmCalls);
   });
 
   it("5. Фатал и восстановление: GET /chats 500 -> registry очищен; возвращаем 200 -> следующий scan пересоздаёт обсервер", async () => {

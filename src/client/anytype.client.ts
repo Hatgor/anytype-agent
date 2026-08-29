@@ -25,24 +25,7 @@ export class AnytypeClient {
     path: string,
     init: RequestInit = {},
   ): Promise<Static<T>> {
-    const url = `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "Anytype-Version": this.apiVersion,
-      Authorization: `Bearer ${this.apiKey}`,
-      ...(init.headers as Record<string, string>),
-    };
-
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        ...init,
-        headers,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`[AnytypeClient] Connection failed to ${url}: ${message}`);
-    }
+    const res = await this.requestRaw(path, init);
 
     if (!res.ok) {
       const errorBody = await res.text().catch(() => "");
@@ -71,6 +54,29 @@ export class AnytypeClient {
         `[AnytypeClient] Schema validation failed for response from ${path}:\n${errors}`,
       );
     }
+  }
+
+  async requestRaw(path: string, init: RequestInit = {}): Promise<Response> {
+    const url = `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Anytype-Version": this.apiVersion,
+      Authorization: `Bearer ${this.apiKey}`,
+      ...(init.headers as Record<string, string>),
+    };
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...init,
+        headers,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Connection failed to ${url}: ${message}`);
+    }
+
+    return res;
   }
 
   async get<T extends TSchema>(schema: T, path: string, init?: RequestInit): Promise<Static<T>> {
@@ -218,7 +224,7 @@ export class AnytypeClient {
   }
 
   static async factory(config: ConfigService<AppConfig, true>) {
-    const log = new Logger("AnytypeClientFactory");
+    const log = new Logger("AnytypeClient");
     const apiUrl = config.get("ANYTYPE_API_URL");
     const apiKey = config.get("ANYTYPE_API_KEY");
 

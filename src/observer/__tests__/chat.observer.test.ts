@@ -3,16 +3,15 @@ import { describe, expect, it, mock } from "bun:test";
 import { defer, type Observable, of, Subject, throwError } from "rxjs";
 import type { AnytypeService, Chat } from "../../client";
 import type { ChatEvent, ChatMessagePayload } from "../../client/types";
-import type { AbstractLlmService } from "../../llm/types";
+import { type AbstractLlmService, type LlmEvent, LlmResponse } from "../../llm/types";
 import { ChatObserver } from "../chat.observer";
-import type { AgentEvent } from "../types";
 import { callArg, callCount, makeMessage, sleep, waitFor } from "./helpers";
 
 describe("ChatObserver (Unit Tests)", () => {
   const setup = (
     options: {
       getChats?: () => Promise<Chat[]>;
-      llmResponse?: string | ((event: AgentEvent) => Observable<string>);
+      llmHandler?: (spaceId: string, payload: object) => Observable<LlmEvent>;
       debounceMs?: number;
       retryDelayMs?: number;
     } = {},
@@ -38,14 +37,9 @@ describe("ChatObserver (Unit Tests)", () => {
       }),
     } as unknown as AnytypeService;
 
-    const llmHandler: (event: AgentEvent) => Observable<string> =
-      typeof options.llmResponse === "function"
-        ? options.llmResponse
-        : () => of(typeof options.llmResponse === "string" ? options.llmResponse : "  Bot reply  ");
-
     const llmFake = {
       init: mock(async () => {}),
-      generateResponse: mock(llmHandler),
+      run: mock(options.llmHandler ?? (() => of(LlmResponse.create("  Bot reply  ")))),
     } as unknown as AbstractLlmService;
 
     const observer = new ChatObserver(
@@ -91,7 +85,7 @@ describe("ChatObserver (Unit Tests)", () => {
     };
   };
 
-  it("1. Анти-эхо: message_added от creator_name 'TestBot' -> generateResponse не вызывается, heartbeat не бьётся", async () => {
+  it("1. Анти-эхо: message_added от creator_name 'TestBot' -> run не вызывается, heartbeat не бьётся", async () => {
     const { ready, pushEvent, llmFake, nextEvents } = setup();
 
     await ready();
@@ -102,7 +96,7 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await sleep(50);
 
-    expect(callCount(llmFake.generateResponse)).toBe(0);
+    expect(callCount(llmFake.run)).toBe(0);
     expect(nextEvents.length).toBe(0);
   });
 
@@ -118,7 +112,7 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await sleep(50);
 
-    expect(callCount(llmFake.generateResponse)).toBe(0);
+    expect(callCount(llmFake.run)).toBe(0);
     expect(nextEvents.length).toBe(0);
   });
 
@@ -130,16 +124,16 @@ describe("ChatObserver (Unit Tests)", () => {
     // 1-й триггерный залп (бэкфилл)
     pushEvent({ ...makeMessage({ creator_name: "Alice", id: "msg_1" }), type: "message_added" });
     await sleep(40);
-    expect(callCount(llmFake.generateResponse)).toBe(0);
+    expect(callCount(llmFake.run)).toBe(0);
 
     // 2-й триггерный залп (новое сообщение)
     pushEvent({ ...makeMessage({ creator_name: "Alice", id: "msg_2" }), type: "message_added" });
-    await waitFor(() => callCount(llmFake.generateResponse) === 1);
+    await waitFor(() => callCount(llmFake.run) === 1);
 
-    expect(callCount(llmFake.generateResponse)).toBe(1);
+    expect(callCount(llmFake.run)).toBe(1);
   });
 
-  it("4. Дебаунс: 2-3 сообщения подряд в пределах окна -> ОДИН вызов generateResponse с накопленной историей", async () => {
+  it("4. Дебаунс: 2-3 сообщения подряд в пределах окна -> ОДИН вызов run с накопленной историей", async () => {
     const { ready, pushEvent, llmFake } = setup({ debounceMs: 30 });
 
     await ready();
@@ -172,20 +166,21 @@ describe("ChatObserver (Unit Tests)", () => {
     pushEvent({ ...m2, type: "message_added" });
     pushEvent({ ...m3, type: "message_added" });
 
-    await waitFor(() => callCount(llmFake.generateResponse) === 1);
+    await waitFor(() => callCount(llmFake.run) === 1);
 
-    expect(callCount(llmFake.generateResponse)).toBe(1);
+    expect(callCount(llmFake.run)).toBe(1);
 
-    const callPayload = callArg<AgentEvent>(llmFake.generateResponse);
-    expect(callPayload.source).toBe("chat");
-    expect(callPayload.payload.length).toBeGreaterThanOrEqual(3);
-    const ids = (callPayload.payload as ChatMessagePayload[]).map((p) => p.id);
+    const spaceIdArg = callArg<string>(llmFake.run, 0, 0);
+    const payloadArg = callArg<ChatMessagePayload[]>(llmFake.run, 0, 1);
+    expect(spaceIdArg).toBe("space.1");
+    expect(payloadArg.length).toBeGreaterThanOrEqual(3);
+    const ids = payloadArg.map((p) => p.id);
     expect(ids).toContain("m1");
     expect(ids).toContain("m2");
     expect(ids).toContain("m3");
   });
 
-  it("5. Heartbeat: на один отправленный ответ ровно один next(undefined) в run()", async () => {
+  it("5. Heartbeat: на один отправленный ответ ровно один next() в run()", async () => {
     const { ready, pushEvent, nextEvents } = setup();
 
     await ready();
@@ -198,11 +193,13 @@ describe("ChatObserver (Unit Tests)", () => {
     pushEvent({ ...makeMessage(), type: "message_added" });
 
     await waitFor(() => nextEvents.length === 1);
-    expect(nextEvents).toEqual([undefined]);
+    expect(nextEvents.length).toBe(1);
   });
 
   it("6. Трим: llm возвращает '  Bot reply  ' -> addChatMessage получает 'Bot reply'", async () => {
-    const { ready, pushEvent, anytypeFake } = setup({ llmResponse: "  Bot reply  " });
+    const { ready, pushEvent, anytypeFake } = setup({
+      llmHandler: () => of(LlmResponse.create("  Bot reply  ")),
+    });
 
     await ready();
 
@@ -226,9 +223,9 @@ describe("ChatObserver (Unit Tests)", () => {
   it("7. Пустой ответ LLM ('' и '   ') -> addChatMessage не вызывался, heartbeat не бился, поток жив", async () => {
     let count = 0;
     const { ready, pushEvent, anytypeFake, nextEvents } = setup({
-      llmResponse: () => {
+      llmHandler: () => {
         count++;
-        return of(count === 1 ? "   " : "Valid reply");
+        return of(LlmResponse.create(count === 1 ? "   " : "Valid reply"));
       },
     });
 
@@ -254,10 +251,10 @@ describe("ChatObserver (Unit Tests)", () => {
   it("8. LLM кидает ошибку -> addChatMessage не вызывался, heartbeat не бился, поток жив (последующий триггер работает)", async () => {
     let count = 0;
     const { ready, pushEvent, anytypeFake, nextEvents } = setup({
-      llmResponse: () => {
+      llmHandler: () => {
         count++;
         if (count === 1) return throwError(() => new Error("LLM boom"));
-        return of("Recovered reply");
+        return of(LlmResponse.create("Recovered reply"));
       },
     });
 
@@ -281,7 +278,7 @@ describe("ChatObserver (Unit Tests)", () => {
   });
 
   it("9. addChatMessage кидает ошибку -> поток жив, следующий триггер работает", async () => {
-    const { ready, pushEvent, anytypeFake, nextEvents } = setup({ llmResponse: "Reply" });
+    const { ready, pushEvent, anytypeFake, nextEvents } = setup();
 
     let addCalls = 0;
     (anytypeFake.addChatMessage as ReturnType<typeof mock>).mockImplementation(async () => {
@@ -332,7 +329,7 @@ describe("ChatObserver (Unit Tests)", () => {
 
     // 2. Посылаем 2-е сообщение -> LLM вызов #1
     pushEvent({ ...makeMessage(), type: "message_added" });
-    await waitFor(() => callCount(llmFake.generateResponse) === 1);
+    await waitFor(() => callCount(llmFake.run) === 1);
 
     // 3. Эмулируем обрыв SSE потока
     const prevSubject = getCurrentSubject();
@@ -345,11 +342,11 @@ describe("ChatObserver (Unit Tests)", () => {
     // 4. После реконнекта skip(1) снова активен: первое сообщение в новом Subject пропустится
     pushEvent({ ...makeMessage(), type: "message_added" });
     await sleep(40);
-    expect(callCount(llmFake.generateResponse)).toBe(1);
+    expect(callCount(llmFake.run)).toBe(1);
 
     // 5. Второе сообщение в новом Subject обработается -> LLM вызов #2
     pushEvent({ ...makeMessage(), type: "message_added" });
-    await waitFor(() => callCount(llmFake.generateResponse) === 2);
+    await waitFor(() => callCount(llmFake.run) === 2);
   });
 
   it("12. destroy() -> run() complete; события после destroy не будят LLM", async () => {
@@ -367,6 +364,6 @@ describe("ChatObserver (Unit Tests)", () => {
     pushEvent({ ...makeMessage(), type: "message_added" });
 
     await sleep(50);
-    expect(callCount(llmFake.generateResponse)).toBe(0);
+    expect(callCount(llmFake.run)).toBe(0);
   });
 });

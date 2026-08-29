@@ -12,15 +12,6 @@ export abstract class AbstractLlmService {
   abstract run(spaceId: string, payload: object): Observable<LlmEvent>;
 }
 
-export type LlmApiTrace = {
-  alias: string;
-  method: string;
-  path: string;
-  status: number;
-  durationMs: number;
-  error?: string;
-};
-
 export class LlmAction {
   type = "ACT";
   detail = "";

@@ -24,6 +24,7 @@ export const HostConfig = Type.Intersect([
     HOST_SSH_KEY_PATH: Type.String({ minLength: 1 }),
     HOST_CLI_BIN: Type.String({ minLength: 1 }),
     HOST_SSH_HOST: Type.String({ default: "host.docker.internal" }),
+    HOST_PROXY_PORT: Type.Number({ default: 31013 }),
   }),
 ]);
 export type HostConfig = Static<typeof HostConfig>;
