@@ -129,6 +129,15 @@ export class AnytypeProxy implements OnModuleDestroy {
     );
   }
 
+  /**
+   * Выдаёт 6-значный алиас вместо настоящего spaceId для одной LLM-джобы.
+   *
+   * SSOT жизненного цикла: алиас живёт ровно пока живёт ран — выдаётся в начале
+   * run() и отзывается через finalize на всех путях выхода (complete/error/unsubscribe).
+   * TTL здесь не нужен и вреден: второй источник правды о времени смерти алиаса
+   * роняет длинные раны 404-ми посреди работы. SpaceId (алиасный и настоящий) —
+   * не секрет: без API-ключа он бесполезен, мимо прокси агент не ходит.
+   */
   issueSpaceAlias(spaceId: string): string {
     let alias: string;
     do {

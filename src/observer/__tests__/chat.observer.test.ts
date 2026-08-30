@@ -3,7 +3,7 @@ import { describe, expect, it, mock } from "bun:test";
 import { defer, type Observable, of, Subject, throwError } from "rxjs";
 import type { AnytypeService, Chat } from "../../client";
 import type { ChatEvent, ChatMessagePayload } from "../../client/types";
-import { type AbstractLlmService, type LlmEvent, LlmResponse } from "../../llm/types";
+import { type AbstractLlmService, LlmAction, type LlmEvent, LlmResponse } from "../../llm/types";
 import { ChatObserver } from "../chat.observer";
 import { callArg, callCount, makeMessage, sleep, waitFor } from "./helpers";
 
@@ -27,6 +27,7 @@ describe("ChatObserver (Unit Tests)", () => {
       addChatMessage: mock(async (_spaceId: string, _chatId: string, _body: unknown) => ({
         message_id: "m_1",
       })),
+      editChatMessage: mock(async () => ({})),
       subscribeChatMessages: mock((_spaceId: string, _chatId: string): Observable<ChatEvent> => {
         return defer(() => {
           const sub = new Subject<ChatEvent>();
@@ -196,7 +197,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(nextEvents.length).toBe(1);
   });
 
-  it("6. Трим: llm возвращает '  Bot reply  ' -> addChatMessage получает 'Bot reply'", async () => {
+  it("6. Прогресс постится первым, ответ — вторым; трим: '  Bot reply  ' -> 'Bot reply'", async () => {
     const { ready, pushEvent, anytypeFake } = setup({
       llmHandler: () => of(LlmResponse.create("  Bot reply  ")),
     });
@@ -210,11 +211,14 @@ describe("ChatObserver (Unit Tests)", () => {
     // Второе сообщение
     pushEvent({ ...makeMessage(), type: "message_added" });
 
-    await waitFor(() => callCount(anytypeFake.addChatMessage) === 1);
+    await waitFor(() => callCount(anytypeFake.addChatMessage) === 2);
 
-    const spaceId = callArg<string>(anytypeFake.addChatMessage, 0, 0);
-    const chatId = callArg<string>(anytypeFake.addChatMessage, 0, 1);
-    const addBody = callArg<{ text: string }>(anytypeFake.addChatMessage, 0, 2);
+    const progressBody = callArg<{ text: string }>(anytypeFake.addChatMessage, 0, 2);
+    expect(progressBody.text).toBe("⏳ Working...");
+
+    const spaceId = callArg<string>(anytypeFake.addChatMessage, 1, 0);
+    const chatId = callArg<string>(anytypeFake.addChatMessage, 1, 1);
+    const addBody = callArg<{ text: string }>(anytypeFake.addChatMessage, 1, 2);
     expect(spaceId).toBe("space.1");
     expect(chatId).toBe("chat.1");
     expect(addBody.text).toBe("Bot reply");
@@ -239,12 +243,13 @@ describe("ChatObserver (Unit Tests)", () => {
     pushEvent({ ...makeMessage(), type: "message_added" });
     await sleep(50);
 
-    expect(callCount(anytypeFake.addChatMessage)).toBe(0);
+    // Постился только прогресс; ответ — нет, heartbeat не бился (прогресс съеден switchMap'ом)
+    expect(callCount(anytypeFake.addChatMessage)).toBe(1);
     expect(nextEvents.length).toBe(0);
 
-    // 2-й триггер: поток жив, LLM вернёт Valid reply
+    // 2-й триггер: поток жив, LLM вернёт Valid reply (прогресс + ответ)
     pushEvent({ ...makeMessage(), type: "message_added" });
-    await waitFor(() => callCount(anytypeFake.addChatMessage) === 1);
+    await waitFor(() => callCount(anytypeFake.addChatMessage) === 3);
     expect(nextEvents.length).toBe(1);
   });
 
@@ -268,24 +273,30 @@ describe("ChatObserver (Unit Tests)", () => {
     pushEvent({ ...makeMessage(), type: "message_added" });
     await sleep(50);
 
-    expect(callCount(anytypeFake.addChatMessage)).toBe(0);
+    // Постился только прогресс; ответ — нет, heartbeat не бился (прогресс съеден switchMap'ом)
+    expect(callCount(anytypeFake.addChatMessage)).toBe(1);
     expect(nextEvents.length).toBe(0);
 
-    // Следующий триггер успешен
+    // Следующий триггер успешен (прогресс + ответ)
     pushEvent({ ...makeMessage(), type: "message_added" });
-    await waitFor(() => callCount(anytypeFake.addChatMessage) === 1);
+    await waitFor(() => callCount(anytypeFake.addChatMessage) === 3);
     expect(nextEvents.length).toBe(1);
   });
 
-  it("9. addChatMessage кидает ошибку -> поток жив, следующий триггер работает", async () => {
+  it("9. Упавший пост ответа не роняет стрим: прогресс прошёл, ответ исчез, следующий триггер доставляет ответ", async () => {
     const { ready, pushEvent, anytypeFake, nextEvents } = setup();
 
-    let addCalls = 0;
-    (anytypeFake.addChatMessage as ReturnType<typeof mock>).mockImplementation(async () => {
-      addCalls++;
-      if (addCalls === 1) throw new Error("API post error");
-      return { message_id: "m_ok" };
-    });
+    let responseFailures = 0;
+    (anytypeFake.addChatMessage as ReturnType<typeof mock>).mockImplementation(
+      async (_spaceId: string, _chatId: string, body: { text: string }) => {
+        // Прогресс-посты (⏳) проходят всегда, ответные — первый раз падают
+        if (!body.text.startsWith("⏳")) {
+          responseFailures++;
+          if (responseFailures === 1) throw new Error("API post error");
+        }
+        return { message_id: "m_ok" };
+      },
+    );
 
     await ready();
 
@@ -293,15 +304,15 @@ describe("ChatObserver (Unit Tests)", () => {
     pushEvent({ ...makeMessage(), type: "message_added" });
     await sleep(30);
 
-    // 1-й триггер: ошибка в addChatMessage
+    // 1-й триггер: ответный пост упал (safe$ заглушил) — heartbeat нет
     pushEvent({ ...makeMessage(), type: "message_added" });
     await sleep(50);
     expect(nextEvents.length).toBe(0);
 
-    // 2-й триггер: поток восстановился
+    // 2-й триггер: поток жив, ответ дошёл (2 прогресса + 2 ответа)
     pushEvent({ ...makeMessage(), type: "message_added" });
     await waitFor(() => nextEvents.length === 1);
-    expect(addCalls).toBe(2);
+    expect(callCount(anytypeFake.addChatMessage)).toBe(4);
   });
 
   it("10. Фатал: getChats reject -> run() error'ится", async () => {
@@ -365,5 +376,105 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await sleep(50);
     expect(callCount(llmFake.run)).toBe(0);
+  });
+
+  it("13. LlmAction -> editChatMessage прогресс-сообщения с накопленным текстом, новых сообщений не постит", async () => {
+    const { ready, pushEvent, anytypeFake } = setup({
+      llmHandler: () =>
+        of(
+          LlmAction.create("GET /objects → 200"),
+          LlmAction.create("POST /files → 201"),
+          LlmResponse.create("Done"),
+        ),
+    });
+
+    await ready();
+
+    // Пропускаем skip(1)
+    pushEvent({ ...makeMessage(), type: "message_added" });
+    await sleep(30);
+
+    // Триггер: два экшна + ответ
+    pushEvent({ ...makeMessage(), type: "message_added" });
+
+    await waitFor(() => callCount(anytypeFake.addChatMessage) === 2);
+
+    // Прогресс отредактирован дважды, накопленный текст полностью переписывается
+    expect(callCount(anytypeFake.editChatMessage)).toBe(2);
+    const edit1 = callArg<{ text: string }>(anytypeFake.editChatMessage, 0, 3);
+    expect(edit1.text).toBe("⏳ Working...\nGET /objects → 200");
+    const edit2 = callArg<{ text: string }>(anytypeFake.editChatMessage, 1, 3);
+    expect(edit2.text).toBe("⏳ Working...\nGET /objects → 200\nPOST /files → 201");
+
+    // Прогресс-блок целиком курсивом
+    const marks = callArg<{ marks: Array<{ type: string; from: number; to: number }> }>(
+      anytypeFake.editChatMessage,
+      1,
+      3,
+    ).marks;
+    expect(marks).toEqual([{ type: "italic", from: 0, to: edit2.text.length }]);
+  });
+
+  it("14. Прогресс не создался после ретрая -> весь ран дропнут, llm.run не вызывался, SSE жив", async () => {
+    const { ready, pushEvent, anytypeFake, llmFake, nextEvents, errors } = setup();
+
+    (anytypeFake.addChatMessage as ReturnType<typeof mock>).mockImplementation(async () => {
+      throw new Error("progress post failed");
+    });
+
+    await ready();
+
+    // Пропускаем skip(1)
+    pushEvent({ ...makeMessage(), type: "message_added" });
+    await sleep(30);
+
+    // Триггер: две попытки (исходная + ретрай), обе падают — ран дропнут
+    pushEvent({ ...makeMessage(), type: "message_added" });
+
+    // Ретрай идёт с задержкой PROGRESS_RETRY_DELAY_MS — ждём дольше
+    await sleep(1600);
+    expect(callCount(anytypeFake.addChatMessage)).toBe(2);
+    expect(callCount(llmFake.run)).toBe(0);
+    expect(nextEvents.length).toBe(0);
+    expect(errors.length).toBe(0);
+
+    // SSE жив: следующий триггер проходит весь путь (прогресс снова падает, но ран дропается так же)
+    pushEvent({ ...makeMessage(), type: "message_added" });
+    await sleep(1600);
+    expect(callCount(llmFake.run)).toBe(0);
+    expect(errors.length).toBe(0);
+  });
+
+  it("15. Первая попытка прогресса упала, ретрай удался -> ран выполняется, ответ доставлен", async () => {
+    const { ready, pushEvent, anytypeFake, llmFake, nextEvents } = setup({
+      llmHandler: () => of(LlmResponse.create("Delivered reply")),
+    });
+
+    let progressFailures = 0;
+    (anytypeFake.addChatMessage as ReturnType<typeof mock>).mockImplementation(
+      async (_spaceId: string, _chatId: string, body: { text: string }) => {
+        if (body.text.startsWith("⏳")) {
+          progressFailures++;
+          if (progressFailures === 1) throw new Error("progress post failed");
+        }
+        return { message_id: "m_ok" };
+      },
+    );
+
+    await ready();
+
+    // Пропускаем skip(1)
+    pushEvent({ ...makeMessage(), type: "message_added" });
+    await sleep(30);
+
+    // Триггер: 1-я попытка прогресса падает, ретрай проходит, ран стартует
+    pushEvent({ ...makeMessage(), type: "message_added" });
+
+    await waitFor(() => callCount(llmFake.run) === 1, 3000);
+    await waitFor(() => callCount(anytypeFake.addChatMessage) === 3, 3000);
+
+    const response = callArg<{ text: string }>(anytypeFake.addChatMessage, 2, 2);
+    expect(response.text).toBe("Delivered reply");
+    expect(nextEvents.length).toBe(1);
   });
 });

@@ -2,7 +2,9 @@ import { Inject, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import {
   catchError,
+  concatMap,
   debounceTime,
+  defer,
   EMPTY,
   exhaustMap,
   filter,
@@ -11,16 +13,30 @@ import {
   type Observable,
   of,
   retry,
+  scan,
   skip,
   switchMap,
   takeUntil,
+  timeout,
 } from "rxjs";
 import type { AppConfig } from "../app.config";
-import { type AddChatMessageBody, AnytypeService, type Chat } from "../client";
+import { AnytypeService, type Chat } from "../client";
 import type { ChatEvent, ChatMessagePayload } from "../client/types";
 import { LLM_SERVICE } from "../llm/llm.module";
-import { AbstractLlmService, LlmAction, LlmResponse } from "../llm/types";
+import { AbstractLlmService, LlmAction, type LlmEvent, LlmResponse } from "../llm/types";
 import { AbstractObserver, type ObserverFactory } from "./types";
+
+const INITIAL_PROGRESS_TEXT = "⏳ Working...";
+
+// Прогресс-блок целиком курсивом — визуально отделяем "бот работает" от контента.
+// Серый шрифт недоступен: спека не определяет color/font для текста сообщений.
+const progressMarks = (text: string) => [{ type: "italic", from: 0, to: text.length }];
+
+// Таймаут одного POST'а прогресса и пауза перед единственным ретраем.
+// Не-config осознанно: это не ручка тюнинга, а страхователь от зависшего HTTP.
+const PROGRESS_POST_TIMEOUT_MS = 5_000;
+const PROGRESS_RETRY_DELAY_MS = 1_000;
+const SAFE_HTTP_TIMEOUT_MS = 15_000;
 
 @Injectable()
 export class ChatObserverFactory implements ObserverFactory {
@@ -42,12 +58,6 @@ export class ChatObserverFactory implements ObserverFactory {
   }
 }
 
-// TODO: Подумать над обратной связью
-// 1. Эмодзи при получении сообщения "на вход" (может револьверную смену реакций как суррогат лоадера?..)
-// 2. Фиксация запросов к API через Proxy - вот тут короткоживущий токен ой как пригодится
-// 3. Проверить лимиты API на редактирование сообщения по сценарию "ЛЛМ прислала запрос к прокси - мы создали / отредактировали техническое сообщение вида "запрашиваю список тасок""
-// 4. Откат фидбека при ошибке/таймауте LLM: снять лоадер-реакцию / дописать "⚠️" в тех-сообщение в finally-семантике.
-//    Сейчас catchError -> EMPTY глухо молчит — юзер не знает вообще, что бот пытался ответить.
 export class ChatObserver extends AbstractObserver {
   private readonly MAX_HISTORY = 50;
   private readonly history = new Map<string, ChatMessagePayload>();
@@ -72,7 +82,6 @@ export class ChatObserver extends AbstractObserver {
 
   private getOrCreateChat(): Observable<Chat> {
     return from(this.anytype.getChats(this.spaceId)).pipe(
-      // TODO: After SQLite is done, check only by chatId, not by name
       map((chats) =>
         chats.find(
           (c) =>
@@ -91,23 +100,13 @@ export class ChatObserver extends AbstractObserver {
     );
   }
 
-  private subscribeToChat(chatId: string) {
+  private subscribeToChat(chatId: string): Observable<unknown> {
     return this.anytype.subscribeChatMessages(this.spaceId, chatId).pipe(
       filter((msg) => msg !== null),
       map((msg) => this.handleHistory(msg)),
 
-      // tap(async (event) => {
-      //   await (await import("node:fs/promises")).writeFile(
-      //     `./src/event-${event.id}.log`,
-      //     JSON.stringify(event, null, 2),
-      //   );
-
-      //   return event;
-      // }),
-
       // 2. Триггер — только чужие message_added:
       //    анти-эхо (игнор бота); правки, удаления и реакции LLM не будят
-      // TODO: фильтровать сообщения без @BotName (без mention)
       filter(
         (msg) =>
           msg.type === "message_added" &&
@@ -116,13 +115,6 @@ export class ChatObserver extends AbstractObserver {
 
       // 3. Дебаунс: склеивает залп стартовых/пользовательских сообщений
       debounceTime(this.debounceMs),
-
-      // tap(async () => {
-      //   await (await import("node:fs/promises")).writeFile(
-      //     `./src/chat-${chatId}.log`,
-      //     JSON.stringify(this.history.values().toArray(), null, 2),
-      //   );
-      // }),
 
       // 4. Пропускаем ровно 1-е событие (стартовый бэкфилл 50 старых сообщений при подключении)
       skip(1),
@@ -137,59 +129,86 @@ export class ChatObserver extends AbstractObserver {
       exhaustMap(({ spaceId, payload }) => {
         this.logger.log(`💬 Generating LLM response for chat ${chatId}...`);
 
-        // TODO: вынести в отдельную функцию
-        return this.llm.run(spaceId, payload).pipe(
-          switchMap((event) => {
-            switch (true) {
-              case event instanceof LlmAction:
-                return this.handleLlmAction(chatId, event);
-              case event instanceof LlmResponse:
-                return this.handleLlmResponse(chatId, event);
-              default:
-                return EMPTY;
-            }
-          }),
+        return this.createProgressMessage$(chatId).pipe(
+          switchMap((progressId) => this.processLlmRun$(spaceId, chatId, payload, progressId)),
           catchError((err) => {
             const msg = err instanceof Error ? err.message : String(err);
-            this.logger.error(`❌ LLM run failed: ${msg}`);
+            this.logger.error(`❌ LLM run dropped: ${msg}`);
             return EMPTY;
           }),
         );
       }),
 
-      // 8. Resilience: реконнект при обрыве SSE
+      // 7. Resilience: реконнект при обрыве SSE
       retry({ delay: this.retryDelayMs }),
     );
   }
 
-  // TODO: создавать в рамках ответа TechMessage, группировать LlmAction как EDIT этого Message
-  // TODO: удалять TechMessage после обработки LlmResponse
-  private readonly handleLlmAction = (chatId: string, { detail }: LlmAction) => {
-    const prefix = "⚡ LLM action: ";
-    const text = `${prefix}${detail}`;
+  /**
+   * Создание стартового прогресс-сообщения.
+   * Чистый стрим: возвращает message_id. При фатале (после ретрая) ошибка летит
+   * в catchError exhaustMap'а — LLM даже не вызывается, алиасы не текут.
+   */
+  private createProgressMessage$(chatId: string): Observable<string> {
+    return defer(() =>
+      this.anytype.addChatMessage(this.spaceId, chatId, {
+        text: INITIAL_PROGRESS_TEXT,
+        marks: progressMarks(INITIAL_PROGRESS_TEXT),
+      }),
+    ).pipe(
+      timeout(PROGRESS_POST_TIMEOUT_MS),
+      retry({ count: 1, delay: PROGRESS_RETRY_DELAY_MS }),
+      map((res) => res.message_id),
+    );
+  }
 
-    return this.post$(chatId, {
-      text,
-      marks: [{ type: "italic", from: prefix.length, to: text.length }],
-    });
-  };
+  // TODO: удалять ProgressMessage после LlmResponse; откат ⚠️ при ошибке/таймауте рана
+  /**
+   * Чистый пайплайн обработки рана LLM:
+   * 1. scan накапливает текст трейсов прямо в LlmAction (начальный сид — реальный LlmAction).
+   * 2. LlmResponse пролетает сквозь scan без изменений.
+   * 3. concatMap обеспечивает строгую FIFO-очередь сетевых вызовов (без race condition).
+   */
+  private processLlmRun$(
+    spaceId: string,
+    chatId: string,
+    payload: ChatMessagePayload[],
+    progressId: string,
+  ): Observable<unknown> {
+    return this.llm.run(spaceId, payload).pipe(
+      scan<LlmEvent, LlmEvent>((acc, event) => {
+        if (event instanceof LlmResponse) return event;
 
-  private readonly handleLlmResponse = (chatId: string, { text }: LlmResponse) => {
-    const trimmed = text.trim();
-    return trimmed ? this.post$(chatId, { text: trimmed }) : EMPTY;
-  };
+        const prevText = acc instanceof LlmAction ? acc.detail : INITIAL_PROGRESS_TEXT;
+        return LlmAction.create(`${prevText}\n${event.detail}`);
+      }, LlmAction.create(INITIAL_PROGRESS_TEXT)),
+      concatMap((event) => {
+        if (event instanceof LlmAction) {
+          return this.safe$(() =>
+            this.anytype.editChatMessage(this.spaceId, chatId, progressId, {
+              text: event.detail,
+              marks: progressMarks(event.detail),
+            }),
+          );
+        }
+
+        const trimmed = event.text.trim();
+        return trimmed
+          ? this.safe$(() => this.anytype.addChatMessage(this.spaceId, chatId, { text: trimmed }))
+          : EMPTY;
+      }),
+    );
+  }
 
   /**
-   * Единственная точка постинга в чат: она же владеет политикой устойчивости.
-   * Одиночный упавший POST не роняет стрим джобы — если не ушло тех-сообщение
-   * с трейсом (rate limit и т.п.), ответ LLM всё равно обязан дойти до юзера.
-   * Контракт для handler'ов: возвращают уже устойчивый observable.
+   * Устойчивый вызов Anytype API: одиночный упавший POST/PATCH не роняет стрим джобы.
    */
-  private post$(chatId: string, body: AddChatMessageBody): Observable<unknown> {
-    return from(this.anytype.addChatMessage(this.spaceId, chatId, body)).pipe(
+  private safe$(op: () => Promise<unknown>): Observable<unknown> {
+    return defer(op).pipe(
+      timeout(SAFE_HTTP_TIMEOUT_MS),
       catchError((err) => {
         const msg = err instanceof Error ? err.message : String(err);
-        this.logger.error(`❌ Failed to post chat message: ${msg}`);
+        this.logger.error(`❌ Failed to post/edit chat message: ${msg}`);
         return EMPTY;
       }),
     );
@@ -217,8 +236,6 @@ export class ChatObserver extends AbstractObserver {
         if (!prev) return msg;
 
         this.history.set(prev.id, { ...prev, reactions: msg.reactions });
-        // Наружу — само событие, а не prev: фильтр ниже различает события по msg.type,
-        // а у prev type застрял на "message_added" — реакция замаскировалась бы под новое сообщение
         return msg;
       }
       default:
