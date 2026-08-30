@@ -16,7 +16,7 @@ import {
   takeUntil,
 } from "rxjs";
 import type { AppConfig } from "../app.config";
-import { AnytypeService, type Chat } from "../client";
+import { type AddChatMessageBody, AnytypeService, type Chat } from "../client";
 import type { ChatEvent, ChatMessagePayload } from "../client/types";
 import { LLM_SERVICE } from "../llm/llm.module";
 import { AbstractLlmService, LlmAction, LlmResponse } from "../llm/types";
@@ -151,7 +151,7 @@ export class ChatObserver extends AbstractObserver {
           }),
           catchError((err) => {
             const msg = err instanceof Error ? err.message : String(err);
-            this.logger.error(`❌ LLM response failed: ${msg}`);
+            this.logger.error(`❌ LLM run failed: ${msg}`);
             return EMPTY;
           }),
         );
@@ -168,20 +168,32 @@ export class ChatObserver extends AbstractObserver {
     const prefix = "⚡ LLM action: ";
     const text = `${prefix}${detail}`;
 
-    return from(
-      this.anytype.addChatMessage(this.spaceId, chatId, {
-        text,
-        marks: [{ type: "italic", from: prefix.length, to: text.length }],
-      }),
-    );
+    return this.post$(chatId, {
+      text,
+      marks: [{ type: "italic", from: prefix.length, to: text.length }],
+    });
   };
 
   private readonly handleLlmResponse = (chatId: string, { text }: LlmResponse) => {
     const trimmed = text.trim();
-    if (!trimmed) return EMPTY;
-
-    return from(this.anytype.addChatMessage(this.spaceId, chatId, { text: trimmed }));
+    return trimmed ? this.post$(chatId, { text: trimmed }) : EMPTY;
   };
+
+  /**
+   * Единственная точка постинга в чат: она же владеет политикой устойчивости.
+   * Одиночный упавший POST не роняет стрим джобы — если не ушло тех-сообщение
+   * с трейсом (rate limit и т.п.), ответ LLM всё равно обязан дойти до юзера.
+   * Контракт для handler'ов: возвращают уже устойчивый observable.
+   */
+  private post$(chatId: string, body: AddChatMessageBody): Observable<unknown> {
+    return from(this.anytype.addChatMessage(this.spaceId, chatId, body)).pipe(
+      catchError((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`❌ Failed to post chat message: ${msg}`);
+        return EMPTY;
+      }),
+    );
+  }
 
   private readonly handleHistory = (msg: ChatEvent) => {
     switch (msg.type) {
