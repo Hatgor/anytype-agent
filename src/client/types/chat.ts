@@ -1,4 +1,5 @@
 import Type, { type Static } from "typebox";
+import { TextMark } from "../schema";
 
 export const ChatReactions = Type.Union([
   Type.Null(),
@@ -14,9 +15,12 @@ export const ChatMessagePayload = Type.Object({
   creator_name: Type.String(),
   created_at: Type.Number(),
   modified_at: Type.Number(),
+  // Пруф формы (спайк 2026-08-30): reply — топ-левел поле, mention — mark в content
+  reply_to_message_id: Type.Optional(Type.String()),
   content: Type.Object({
     text: Type.String(),
     style: Type.String(),
+    marks: Type.Optional(Type.Array(TextMark)),
   }),
   // TODO: define attachments type later
   attachments: Type.Array(Type.Unknown()),

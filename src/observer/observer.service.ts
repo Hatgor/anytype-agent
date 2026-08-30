@@ -31,25 +31,25 @@ export class ObserverService implements OnApplicationBootstrap, OnModuleDestroy 
     this.botName = config.get("ANYTYPE_BOT_NAME");
   }
 
-  private checkBotPermissions(spaceName: string, members: Member[]): boolean {
+  private findActiveBot(spaceName: string, members: Member[]): Member | null {
     try {
-      // Skipping nameless technical spaces
-      if (!spaceName.length) return false;
+      // Безымянные — технические спейсы, пропускаем.
+      if (!spaceName.length) return null;
 
       const bot = members.find(
         (m) => m.name.toLowerCase() === this.botName.toLowerCase() || m.identity === this.botName,
       );
 
-      if (bot?.status !== "active") return false;
+      if (bot?.status !== "active") return null;
       if (!WRITE_ROLES.has(bot.role)) {
         this.log.warn(`⛔ [Space:${spaceName}] Bot role "${bot.role}" is read-only. Skipping.`);
-        return false;
+        return null;
       }
-      return true;
+      return bot;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.log.error(`Failed to check members in space "${spaceName}": ${msg}`);
-      return false;
+      return null;
     }
   }
 
@@ -76,11 +76,11 @@ export class ObserverService implements OnApplicationBootstrap, OnModuleDestroy 
       const isConnected = this.registry.has(id);
       if (isConnected) continue;
 
-      const hasBot = this.checkBotPermissions(name, members);
-      if (!hasBot) continue;
+      const bot = this.findActiveBot(name, members);
+      if (!bot) continue;
 
       const observers = this.observers.map((factory) => {
-        return factory.create(id, this.botName);
+        return factory.create(id, this.botName, bot.identity);
       });
 
       this.registry.set(id, observers);

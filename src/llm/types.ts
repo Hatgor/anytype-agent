@@ -4,11 +4,14 @@ export abstract class AbstractLlmService {
   protected readonly logger = new Logger(this.constructor.name);
 
   /**
-   * Инициализация и проверка доступности LLM провайдера (SSH, API-ключи, CLI).
-   * Вызывается при старте приложения для быстрого падения при ошибках конфигурации.
+   * Инициализация провайдера (SSH, ключи, CLI) при старте — быстрый фейл битого конфига.
    */
   abstract init(): Promise<void>;
 
+  /**
+   * Инвариант стрима: ровно один LlmResponse, он — последний элемент, затем complete.
+   * Промежуточные события — LlmAction (прогресс); ошибки летят через error-канал.
+   */
   abstract run(spaceId: string, payload: object): Observable<LlmEvent>;
 }
 

@@ -28,7 +28,7 @@ export const LLM_SERVICE = Symbol.for("LLM_SERVICE");
         // const isOpenAi = Boolean(config.get("OPENAI_API_KEY" as keyof AppConfig));
         const service: AbstractLlmService = hostModel;
 
-        // Async healthcheck during module construction / DI bootstrap
+        // init() в фабрике DI: битый конфиг/SSH фейлится сразу при бутстрапе модуля
         await service.init();
         return service;
       },

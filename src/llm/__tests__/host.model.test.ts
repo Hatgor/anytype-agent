@@ -54,7 +54,6 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     proxy = new AnytypeProxy(mockConfig, fakeClient);
     await proxy.start();
 
-    // Шпионим за issueSpaceAlias с сохранением оригинальной логики и захватом alias
     const originalIssue = proxy.issueSpaceAlias.bind(proxy);
     issueAliasSpy = spyOn(proxy, "issueSpaceAlias").mockImplementation((spaceId: string) => {
       const alias = originalIssue(spaceId);
@@ -95,10 +94,8 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
 
     await waitFor(() => completed, 2000);
 
-    // Ядро теста: SSH процесс вызван ровно 1 раз благодаря share()
     expect(execCount).toBe(1);
 
-    // Проверяем единственный результат и тримминг
     expect(events.length).toBe(1);
     expect(events[0]).toBeInstanceOf(LlmResponse);
     expect((events[0] as LlmResponse).text).toBe("Reply");
@@ -127,7 +124,6 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     const alias = getAlias(0);
     expect(alias.length).toBeGreaterThan(0);
 
-    // Во время работы джобы пушим два трейса с этим alias
     proxy.traces$.next({
       alias,
       method: "GET",
@@ -143,14 +139,12 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
       durationMs: 12,
     });
 
-    // Завершаем работу SSH-процесса
     resolveExec({ stdout: "Done reply", stderr: "" });
 
-    // Главный assert: takeUntil(done$) глушит traces$ и стрим завершается вовремя
     await waitFor(() => completed, 2000);
     expect(completed).toBe(true);
 
-    // Порядок событий: сначала экшны, затем ответ (LlmResponse — последний элемент)
+    // LlmResponse — последний элемент (инвариант стрима)
     expect(events.length).toBe(3);
     expect(events[0]).toBeInstanceOf(LlmAction);
     expect((events[0] as LlmAction).detail).toBe("GET /objects → 200");
@@ -159,7 +153,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     expect(events[2]).toBeInstanceOf(LlmResponse);
     expect((events[2] as LlmResponse).text).toBe("Done reply");
 
-    // Пуш третьего трейса после complete не должен доставляться в завершённую подписку
+    // Трейс после complete не доставляется
     proxy.traces$.next({
       alias,
       method: "DELETE",
@@ -225,7 +219,6 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     const alias = getAlias(0);
     expect(alias.length).toBeGreaterThan(0);
 
-    // Пушим трейс до отписки
     proxy.traces$.next({
       alias,
       method: "GET",
@@ -235,10 +228,9 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     });
     expect(events.length).toBe(1);
 
-    // Досрочно отписываемся (например, при destroy обсервера)
+    // Досрочно отписываемся (сценарий destroy обсервера)
     sub.unsubscribe();
 
-    // Проверяем, что finalize вызвал отзыв алиаса
     expect(revokeAliasSpy).toHaveBeenCalledWith(alias);
   });
 
@@ -284,7 +276,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     const aliasB = getAlias(1);
     expect(aliasA).not.toBe(aliasB);
 
-    // Пушим трейсы для обоих алиасов вперемешку
+    // Трейсы обоих алиасов вперемешку
     proxy.traces$.next({
       alias: aliasA,
       method: "GET",
@@ -319,7 +311,6 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
 
     await waitFor(() => completedA && completedB, 2000);
 
-    // Проверяем стрим A: только трейсы A и ответ A
     expect(eventsA.length).toBe(3);
     expect((eventsA[0] as LlmAction).detail).toBe("GET /chats → 200");
     expect((eventsA[1] as LlmAction).detail).toBe("POST /files → 201");
@@ -327,7 +318,6 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     // Алиас не должен утекать в detail
     expect((eventsA[0] as LlmAction).detail).not.toContain(aliasA);
 
-    // Проверяем стрим B: только трейсы B и ответ B
     expect(eventsB.length).toBe(3);
     expect((eventsB[0] as LlmAction).detail).toBe("GET /members → 200");
     expect((eventsB[1] as LlmAction).detail).toBe("GET /types → 200");

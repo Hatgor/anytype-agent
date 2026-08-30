@@ -65,7 +65,6 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
       of(LlmResponse.create("  Bot reply  ")),
     );
 
-    // Начальные ответы Anytype API
     spacesList = [
       { id: "sp_main", name: "Main Space" },
       { id: "sp_viewer", name: "Viewer Space" },
@@ -175,30 +174,27 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
   });
 
   it("3. Полный цикл: enqueue user message_added -> LLM вызвана, POST /messages отправлен с 'Bot reply', lastActivity обновлена", async () => {
-    // Ждём инициализацию SSE стрима для sp_main
     await waitFor(() => sseControllers.length >= 1);
     const controller = sseControllers[sseControllers.length - 1];
     if (!controller) throw new Error("SSE controller not found");
 
     const initialLlmCalls = callCount(runSpy);
 
-    // 1. Стартовый бэкфилл (skip 1)
     pushSseEvent(controller, "message_added", {
       type: "message_added",
       payload: { message: makeMessage({ creator_name: "Alice", id: "init_msg" }) },
     });
     await sleep(40);
 
-    // 2. Реальное пользовательское сообщение
     pushSseEvent(controller, "message_added", {
       type: "message_added",
-      payload: { message: makeMessage({ creator_name: "Alice", id: "real_msg" }) },
+      payload: {
+        message: makeMessage({ creator_name: "Alice", id: "real_msg" }, { mentionBot: "TestBot" }),
+      },
     });
 
-    // Ждём вызов LLM
     await waitFor(() => callCount(runSpy) === initialLlmCalls + 1);
 
-    // Ждём отправку сообщения в чат Anytype
     await waitFor(() => postMessageCalls.length >= 1);
     const lastPost = postMessageCalls[postMessageCalls.length - 1];
     if (!lastPost) throw new Error("No POST call recorded");
@@ -206,7 +202,6 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     expect(lastPost.chat_id).toBe("chat_main");
     expect(lastPost.space_id).toBe("sp_main");
 
-    // lastActivity зафиксирована
     expect(internals.lastActivity.has("sp_main")).toBe(true);
     expect(typeof internals.lastActivity.get("sp_main")).toBe("number");
   });
@@ -218,11 +213,15 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
 
     pushSseEvent(controller, "message_added", {
       type: "message_added",
-      payload: { message: makeMessage({ creator_name: "TestBot" }) },
+      payload: {
+        message: makeMessage({ creator: "_participant_sp_main_TestBot", creator_name: "TestBot" }),
+      },
     });
     pushSseEvent(controller, "message_added", {
       type: "message_added",
-      payload: { message: makeMessage({ creator_name: "testbot" }) },
+      payload: {
+        message: makeMessage({ creator: "_participant_sp_main_TestBot", creator_name: "testbot" }),
+      },
     });
 
     await sleep(50);
@@ -232,9 +231,8 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
   it("5. Фатал и восстановление: GET /chats 500 -> registry очищен; возвращаем 200 -> следующий scan пересоздаёт обсервер", async () => {
     expect(internals.registry.has("sp_main")).toBe(true);
 
-    // 1. Ломаем /chats
     chatsStatus = 500;
-    // Ошибаем текущий SSE поток, чтобы вызвать реконнект / пересоздание
+    // Ошибка SSE -> реконнект/пересоздание
     const ctrl = sseControllers[sseControllers.length - 1];
     if (ctrl) {
       try {
@@ -242,20 +240,18 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
       } catch {}
     }
 
-    // Удаляем из registry спейс и заставляем скан попытаться создать его при сломанном /chats
+    // Удаляем из registry; скан попытается пересоздать при сломанном /chats
     internals.registry.get("sp_main")?.forEach((obs) => {
       obs.destroy();
     });
     internals.registry.delete("sp_main");
 
-    // Сканы каждые 200мс пытаются создать, но /chats 500 -> getOrCreateChat падает -> handleObserverDeath -> registry пуст
+    // Скан упирается в /chats 500 -> фатал -> registry пуст
     await sleep(250);
     expect(internals.registry.has("sp_main")).toBe(false);
 
-    // 2. Чиним /chats
     chatsStatus = 200;
 
-    // В течение следующего интервала скана (200мс) обсервер успешно пересоздастся
     await waitFor(() => internals.registry.has("sp_main"), 2500);
     expect(internals.registry.has("sp_main")).toBe(true);
   });
@@ -263,10 +259,8 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
   it("6. Пропавший спейс: /v1/spaces пуст -> registry пуст", async () => {
     expect(internals.registry.has("sp_main")).toBe(true);
 
-    // Очищаем список спейсов
     spacesList = [];
 
-    // Ждём скан (200ms)
     await waitFor(() => !internals.registry.has("sp_main"));
     expect(internals.registry.has("sp_main")).toBe(false);
   });

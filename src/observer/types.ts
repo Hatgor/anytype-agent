@@ -4,7 +4,11 @@ import { type Observable, Subject } from "rxjs";
 export type AgentEvent = any;
 
 export interface ObserverFactory {
-  create(id: string, botName: string): AbstractObserver;
+  /**
+   * @param botMemberId identity из members API; в wire-форме creator/mention param это
+   *                    "_participant_<spaceId>_<identity>" — матч по суффиксу.
+   */
+  create(id: string, botName: string, botMemberId: string): AbstractObserver;
 }
 
 export abstract class AbstractObserver {
@@ -12,10 +16,9 @@ export abstract class AbstractObserver {
   protected readonly destroy$ = new Subject<void>();
 
   /**
-   * Жизненный цикл актора:
-   *  next     — один удар на каждый отправленный ответ бота (heartbeat)
-   *  error    — фатальная смерть обсервера; политика (гасить спейс) — на стороне сервиса
-   *  complete — плановое выключение через destroy()
+   * Жизненный цикл актора: next — heartbeat на каждый отправленный ответ;
+   * error — фатал (политика гашения спейса на стороне сервиса);
+   * complete — плановое выключение через destroy().
    */
   abstract run(): Observable<unknown>;
 

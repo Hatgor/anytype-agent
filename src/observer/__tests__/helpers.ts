@@ -22,14 +22,18 @@ export async function waitFor(
   }
 }
 
-export function makeMessage(overrides: Partial<ChatMessagePayload> = {}): ChatMessagePayload {
-  return {
+export function makeMessage(
+  overrides: Partial<ChatMessagePayload> = {},
+  opts: { mentionBot?: string; replyTo?: string } = {},
+): ChatMessagePayload {
+  const msg: ChatMessagePayload = {
     id: `msg_${Math.random().toString(36).substring(2, 9)}`,
     order_id: "0",
     creator: "usr_alice",
     creator_name: "Alice",
-    created_at: Date.now(),
-    modified_at: Date.now(),
+    // Wire-формат created_at — СЕКУНДЫ (пруф: спайк-логи 1788106711)
+    created_at: Math.floor(Date.now() / 1000),
+    modified_at: Math.floor(Date.now() / 1000),
     content: {
       text: "Hello",
       style: "paragraph",
@@ -39,6 +43,21 @@ export function makeMessage(overrides: Partial<ChatMessagePayload> = {}): ChatMe
     pinned: false,
     ...overrides,
   };
+
+  // Wire-форма mention: "_participant_<...>_<identity>" — isBotId матчит по суффиксу
+  if (opts.mentionBot) {
+    msg.content = {
+      ...msg.content,
+      marks: [
+        ...(msg.content.marks ?? []),
+        { type: "mention", param: `_participant_space_${opts.mentionBot}` },
+      ],
+    };
+  }
+  if (opts.replyTo) {
+    msg.reply_to_message_id = opts.replyTo;
+  }
+  return msg;
 }
 
 export interface ObserverServiceInternals {

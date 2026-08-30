@@ -12,8 +12,7 @@ export class SpaceWorker {
   ) {}
 
   /**
-   * Main entry point: returns a combined stream of all events detected in this space
-   * (both Realtime Chat SSE and Object Polling).
+   * Комбинированный стрим событий спейса: SSE чата + поллинг упоминаний в объектах.
    */
   observe(pollIntervalMs = 30000): Observable<SpaceEvent> {
     console.log(
@@ -35,11 +34,6 @@ export class SpaceWorker {
 
     return merge(...streams);
   }
-
-  /**
-   * Subscribes to real-time chat messages via SSE and emits raw events using RxJS.
-   * Auto-reconnects with a 5s delay on disconnect.
-   */
 
   // TODO: This should be done differently
   // On receiving a chat message, we must load the chat history to ensure we have previous messages
@@ -71,10 +65,6 @@ export class SpaceWorker {
     );
   }
 
-  /**
-   * Periodically searches for objects mentioning the bot in this space.
-   * Excludes chat objects and fetches full object details for raw inspection.
-   */
   private observeObjectMentions(pollIntervalMs: number): Observable<SpaceEvent> {
     const query = this.context.botName;
 
@@ -96,7 +86,6 @@ export class SpaceWorker {
         ),
       ),
       switchMap((objects) => from(objects)),
-      // Filter out invalid, archived, or chat objects
       filter((obj) => {
         // TODO: Add a TypeBox schema validation instead of raw checks
         if (!obj.id) return false;
@@ -106,7 +95,6 @@ export class SpaceWorker {
         if (obj.name?.toLowerCase().startsWith("chat with ")) return false;
         return true;
       }),
-      // Fetch full object details including body markdown
       switchMap((obj) =>
         defer(() => from(this.client.getObject(this.context.spaceId, obj.id, "md"))).pipe(
           map((fullObj) => ({

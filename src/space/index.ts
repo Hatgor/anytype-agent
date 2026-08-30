@@ -7,11 +7,6 @@ import { SpaceWorker } from "./space.worker";
 export * from "./schema";
 export { SpaceWorker };
 
-/**
- * Initializes resources for a single verified space:
- * 1. Finds or creates chat with the bot.
- * 2. Finds or creates custom type "Agent Response".
- */
 //TODO: decouple this to multiple functions, use rxJS flows
 async function setupSpaceContext(
   client: AnytypeService,
@@ -20,7 +15,6 @@ async function setupSpaceContext(
 ): Promise<SpaceContext> {
   console.log(`🔧 [Orchestrator] Setting up resources for space: "${space.name}" (${space.id})`);
 
-  // 1. Ensure chat exists for this space
   let chatId: string | undefined;
   try {
     console.log(`🔍 [Space:${space.name}] Fetching existing chats for bot "${botMember.name}"...`);
@@ -57,7 +51,6 @@ async function setupSpaceContext(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`⚠️ [Space:${space.name}] Failed to get/create chat via Chats API: ${message}`);
-    // Fallback: search for chat object in space
     try {
       console.log(
         `🔎 [Space:${space.name}] Attempting fallback object search for "Chat with ${botMember.name}"...`,
@@ -80,7 +73,7 @@ async function setupSpaceContext(
     }
   }
 
-  // 2. Ensure "Agent Response" type exists in space (optional enhancement)
+  // "Agent Response" — опциональное улучшение: ошибка создания не фатальна
   //TODO: double check type creation logic, cover it with tests
   let agentResponseTypeId: string | undefined;
   try {
@@ -121,8 +114,7 @@ async function setupSpaceContext(
 }
 
 /**
- * Discovers all spaces where bot is an active member, validates permissions,
- * sets up per-space workers, and returns a merged Observable of all space events.
+ * Возвращает merged Observable событий всех спейсов, где бот прошёл проверку.
  */
 export async function initSpaceOrchestrator(
   client: AnytypeService,
@@ -147,7 +139,6 @@ export async function initSpaceOrchestrator(
       );
 
       if (!bot) {
-        // Bot is not a member of this space -> skip quietly
         continue;
       }
 

@@ -8,9 +8,8 @@ import Value from "typebox/value";
 import type { AppConfig } from "../app.config";
 
 /**
- * Low-level HTTP and SSE transport client for Anytype daemon.
- * Knows NOTHING about domain entities (spaces, chats, types).
- * Strictly responsible for transport, headers, authentication, resilience, and SSE streaming.
+ * Транспортный слой для демона Anytype: HTTP, заголовки, аутентификация, SSE-стриминг.
+ * Ничего не знает о доменных сущностях (spaces, chats, types) — это инвариант границы.
  */
 export class AnytypeClient {
   constructor(
@@ -113,9 +112,6 @@ export class AnytypeClient {
     return this.request(schema, path, { ...init, method: "DELETE" });
   }
 
-  /**
-   * Generic SSE stream subscriber. Emits raw parsed events as an Observable.
-   */
   stream(path: string): Observable<{ event?: string; data: unknown }> {
     return defer(() => {
       const abortController = new AbortController();
@@ -169,8 +165,7 @@ export class AnytypeClient {
   }
 
   /**
-   * Healthcheck helper verifying basic connectivity to the API endpoint.
-   * Fails fast on 401/403 authentication errors.
+   * Healthcheck: на 401/403 падает сразу, без ретраев.
    */
   async checkHealth(
     healthcheckPath = "/v1/spaces",
@@ -198,7 +193,7 @@ export class AnytypeClient {
         delay: (error: unknown, retryCount: number) => {
           const msg = error instanceof Error ? error.message : String(error);
           if (msg.includes("Authentication failed")) {
-            throw error; // Fail immediately on bad credentials
+            throw error;
           }
           this.logger.log(
             `⏳ [AnytypeClient] Waiting for Anytype API (${this.baseUrl})... (attempt ${retryCount}/${maxAttempts})`,
@@ -231,7 +226,7 @@ export class AnytypeClient {
     log.log(`Initializing Anytype client for ${apiUrl}...`);
     const client = new AnytypeClient(log, apiUrl.replace(/\/$/, ""), apiKey);
 
-    // Healthcheck: ensures API is reachable and token is valid before app bootstrap completes
+    // Блокируем бутстрап, пока API недоступен или токен невалиден
     await client.checkHealth();
     log.log(`Anytype client verified and ready at ${apiUrl}`);
     return client;

@@ -80,14 +80,12 @@ export class HostModelService extends AbstractLlmService {
 
       this.logger.log(`🤖 Executing host agent via SSH (prompt length: ${prompt.length} chars)...`);
 
-      // TODO: Это флаги специфичные для Antigravity CLI...
-      // Неужели придется делать по сервису на каждый инструмент...
-      // TODO: передавать конфиг в аргументах чтобы Agy использовал самую быструю модель
+      // TODO: флаги специфичны для Antigravity CLI — по сервису на каждый инструмент?
+      // TODO: передавать конфиг в аргументах, чтобы Agy брал самую быструю модель
 
-      // Флаги:
-      // --dangerously-skip-permissions: разрешает headless вызовы инструментов (curl к прокси) без висения на TTY
-      // --disable-slash-commands: защищает URL-пути /v1/spaces от парсера слэш-команд
-      // $(cat) безопасно считывает промпт из STDIN без base64 и шелл-экранирования
+      // Флаги: --dangerously-skip-permissions (headless вызовы инструментов без TTY),
+      // --disable-slash-commands (парсер слэш-команд не съедает URL /v1/spaces);
+      // $(cat) — промпт из STDIN без base64 и шелл-экранирования.
       const remoteCommand = `export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"; ${this.cliBin} -p "$(cat)" --dangerously-skip-permissions --disable-slash-commands`;
 
       const { stdout, stderr } = await this.execRemote(remoteCommand, prompt, 120_000);

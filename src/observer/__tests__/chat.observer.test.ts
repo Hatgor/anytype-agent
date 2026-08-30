@@ -46,6 +46,7 @@ describe("ChatObserver (Unit Tests)", () => {
     const observer = new ChatObserver(
       "space.1",
       "TestBot",
+      "member_test_bot",
       anytypeFake,
       llmFake,
       options.debounceMs ?? 10,
@@ -86,14 +87,23 @@ describe("ChatObserver (Unit Tests)", () => {
     };
   };
 
-  it("1. Анти-эхо: message_added от creator_name 'TestBot' -> run не вызывается, heartbeat не бьётся", async () => {
+  it("1. Анти-эхо: message_added от бота (creator = participant-ID) -> run не вызывается, даже с self-mention", async () => {
     const { ready, pushEvent, llmFake, nextEvents } = setup();
 
     await ready();
 
-    // Скидываем стартовый бэкфилл через эхо бота
-    pushEvent({ ...makeMessage({ creator_name: "TestBot" }), type: "message_added" });
-    pushEvent({ ...makeMessage({ creator_name: "testbot" }), type: "message_added" });
+    // Эхо бота (wire-форма creator)
+    pushEvent({
+      ...makeMessage({ creator: "_participant_space.1_member_test_bot", creator_name: "TestBot" }),
+      type: "message_added",
+    });
+    pushEvent({
+      ...makeMessage(
+        { creator: "_participant_space.1_member_test_bot", creator_name: "testbot" },
+        { mentionBot: "member_test_bot" },
+      ),
+      type: "message_added",
+    });
 
     await sleep(50);
 
@@ -117,18 +127,25 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(nextEvents.length).toBe(0);
   });
 
-  it("3. skip(1): первый триггерный залп НЕ будит LLM (защита от бэкфилла), второй — будит", async () => {
+  it("3. Бэкфилл-залп: mention в середине, хвост без mention -> НЕ будит; свежий mention -> будит", async () => {
     const { ready, pushEvent, llmFake } = setup();
 
     await ready();
 
-    // 1-й триггерный залп (бэкфилл)
-    pushEvent({ ...makeMessage({ creator_name: "Alice", id: "msg_1" }), type: "message_added" });
+    // Рестарты не спамят: mention из середины реплея не будит, решает хвост окна
+    pushEvent({
+      ...makeMessage({ id: "bf_1" }, { mentionBot: "member_test_bot" }),
+      type: "message_added",
+    });
+    pushEvent({ ...makeMessage({ id: "bf_2" }), type: "message_added" });
+    pushEvent({ ...makeMessage({ id: "bf_3" }), type: "message_added" });
     await sleep(40);
     expect(callCount(llmFake.run)).toBe(0);
 
-    // 2-й триггерный залп (новое сообщение)
-    pushEvent({ ...makeMessage({ creator_name: "Alice", id: "msg_2" }), type: "message_added" });
+    pushEvent({
+      ...makeMessage({ id: "msg_2" }, { mentionBot: "member_test_bot" }),
+      type: "message_added",
+    });
     await waitFor(() => callCount(llmFake.run) === 1);
 
     expect(callCount(llmFake.run)).toBe(1);
@@ -139,29 +156,25 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await ready();
 
-    // 1-й залп для прохождения skip(1)
+    // Прогрев: залп без mention — не триггер, наполняет history
     pushEvent({
-      ...makeMessage({ creator_name: "Alice", id: "msg_init" }),
+      ...makeMessage({ creator_name: "Alice", id: "msg_init" }, {}),
       type: "message_added",
     });
     await sleep(60);
 
-    // 2-й залп: пачка из 3 сообщений быстро
-    const m1 = makeMessage({
-      creator_name: "Alice",
-      id: "m1",
-      content: { text: "Part 1", style: "paragraph" },
-    });
-    const m2 = makeMessage({
-      creator_name: "Alice",
-      id: "m2",
-      content: { text: "Part 2", style: "paragraph" },
-    });
-    const m3 = makeMessage({
-      creator_name: "Bob",
-      id: "m3",
-      content: { text: "Part 3", style: "paragraph" },
-    });
+    const m1 = makeMessage(
+      { creator_name: "Alice", id: "m1", content: { text: "Part 1", style: "paragraph" } },
+      { mentionBot: "member_test_bot" },
+    );
+    const m2 = makeMessage(
+      { creator_name: "Alice", id: "m2", content: { text: "Part 2", style: "paragraph" } },
+      { mentionBot: "member_test_bot" },
+    );
+    const m3 = makeMessage(
+      { creator_name: "Bob", id: "m3", content: { text: "Part 3", style: "paragraph" } },
+      { mentionBot: "member_test_bot" },
+    );
 
     pushEvent({ ...m1, type: "message_added" });
     pushEvent({ ...m2, type: "message_added" });
@@ -186,12 +199,13 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await ready();
 
-    // Пропускаем skip(1)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
     await sleep(30);
 
-    // Реальное сообщение
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
 
     await waitFor(() => nextEvents.length === 1);
     expect(nextEvents.length).toBe(1);
@@ -204,12 +218,13 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await ready();
 
-    // Пропускаем skip(1)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
     await sleep(30);
 
-    // Второе сообщение
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
 
     await waitFor(() => callCount(anytypeFake.addChatMessage) === 2);
 
@@ -235,20 +250,20 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await ready();
 
-    // Пропускаем skip(1)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
     await sleep(30);
 
-    // 1-й триггер: LLM вернёт пустую строку
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await sleep(50);
 
-    // Постился только прогресс; ответ — нет, heartbeat не бился (прогресс съеден switchMap'ом)
+    // Постился только прогресс; heartbeat нет (ответ уходит в EMPTY, стрим жив)
     expect(callCount(anytypeFake.addChatMessage)).toBe(1);
     expect(nextEvents.length).toBe(0);
 
-    // 2-й триггер: поток жив, LLM вернёт Valid reply (прогресс + ответ)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await waitFor(() => callCount(anytypeFake.addChatMessage) === 3);
     expect(nextEvents.length).toBe(1);
   });
@@ -265,20 +280,20 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await ready();
 
-    // Пропускаем skip(1)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
     await sleep(30);
 
-    // Триггер с ошибкой LLM
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await sleep(50);
 
-    // Постился только прогресс; ответ — нет, heartbeat не бился (прогресс съеден switchMap'ом)
+    // Постился только прогресс; heartbeat нет (ответ уходит в EMPTY, стрим жив)
     expect(callCount(anytypeFake.addChatMessage)).toBe(1);
     expect(nextEvents.length).toBe(0);
 
-    // Следующий триггер успешен (прогресс + ответ)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await waitFor(() => callCount(anytypeFake.addChatMessage) === 3);
     expect(nextEvents.length).toBe(1);
   });
@@ -289,7 +304,7 @@ describe("ChatObserver (Unit Tests)", () => {
     let responseFailures = 0;
     (anytypeFake.addChatMessage as ReturnType<typeof mock>).mockImplementation(
       async (_spaceId: string, _chatId: string, body: { text: string }) => {
-        // Прогресс-посты (⏳) проходят всегда, ответные — первый раз падают
+        // Прогресс-посты проходят, первый ответный — падает
         if (!body.text.startsWith("⏳")) {
           responseFailures++;
           if (responseFailures === 1) throw new Error("API post error");
@@ -300,17 +315,18 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await ready();
 
-    // Пропускаем skip(1)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
     await sleep(30);
 
-    // 1-й триггер: ответный пост упал (safe$ заглушил) — heartbeat нет
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    // Ответный пост упал — safe$ заглушил, heartbeat нет
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await sleep(50);
     expect(nextEvents.length).toBe(0);
 
-    // 2-й триггер: поток жив, ответ дошёл (2 прогресса + 2 ответа)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await waitFor(() => nextEvents.length === 1);
     expect(callCount(anytypeFake.addChatMessage)).toBe(4);
   });
@@ -327,36 +343,36 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(subscription.closed).toBe(true);
   });
 
-  it("11. SSE error(): run() НЕ error'ится (retry держит). После reconnect skip(1) обнуляется", async () => {
+  it("11. SSE error(): run() НЕ error'ится (retry держит). Реплей бэкфилла после reconnect не будит", async () => {
     const { ready, errors, getCurrentSubject, pushEvent, llmFake } = setup({
       retryDelayMs: 20,
     });
 
     await ready();
 
-    // 1. Посылаем 1-е сообщение (skip 1)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
     await sleep(30);
 
-    // 2. Посылаем 2-е сообщение -> LLM вызов #1
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await waitFor(() => callCount(llmFake.run) === 1);
 
-    // 3. Эмулируем обрыв SSE потока
     const prevSubject = getCurrentSubject();
     prevSubject.error(new Error("SSE connection dropped"));
 
-    // run() не должен упасть в error, ждём реконнект (новый Subject)
     await waitFor(() => getCurrentSubject() !== prevSubject);
     expect(errors.length).toBe(0);
 
-    // 4. После реконнекта skip(1) снова активен: первое сообщение в новом Subject пропустится
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
     await sleep(40);
     expect(callCount(llmFake.run)).toBe(1);
 
-    // 5. Второе сообщение в новом Subject обработается -> LLM вызов #2
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await waitFor(() => callCount(llmFake.run) === 2);
   });
 
@@ -365,14 +381,12 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await ready();
 
-    // Вызываем destroy()
     observer.destroy();
     await waitFor(() => getCompleted());
     expect(getCompleted()).toBe(true);
 
-    // События после destroy
-    pushEvent({ ...makeMessage(), type: "message_added" });
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
 
     await sleep(50);
     expect(callCount(llmFake.run)).toBe(0);
@@ -390,23 +404,23 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await ready();
 
-    // Пропускаем skip(1)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
     await sleep(30);
 
-    // Триггер: два экшна + ответ
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
 
     await waitFor(() => callCount(anytypeFake.addChatMessage) === 2);
 
-    // Прогресс отредактирован дважды, накопленный текст полностью переписывается
+    // Каждый edit переписывает весь накопленный текст
     expect(callCount(anytypeFake.editChatMessage)).toBe(2);
     const edit1 = callArg<{ text: string }>(anytypeFake.editChatMessage, 0, 3);
     expect(edit1.text).toBe("⏳ Working...\nGET /objects → 200");
     const edit2 = callArg<{ text: string }>(anytypeFake.editChatMessage, 1, 3);
     expect(edit2.text).toBe("⏳ Working...\nGET /objects → 200\nPOST /files → 201");
 
-    // Прогресс-блок целиком курсивом
     const marks = callArg<{ marks: Array<{ type: string; from: number; to: number }> }>(
       anytypeFake.editChatMessage,
       1,
@@ -424,22 +438,24 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await ready();
 
-    // Пропускаем skip(1)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
     await sleep(30);
 
-    // Триггер: две попытки (исходная + ретрай), обе падают — ран дропнут
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    // Обе попытки (исходная + ретрай) падают — ран дропнут
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
 
-    // Ретрай идёт с задержкой PROGRESS_RETRY_DELAY_MS — ждём дольше
+    // Ждём дольше PROGRESS_RETRY_DELAY_MS
     await sleep(1600);
     expect(callCount(anytypeFake.addChatMessage)).toBe(2);
     expect(callCount(llmFake.run)).toBe(0);
     expect(nextEvents.length).toBe(0);
     expect(errors.length).toBe(0);
 
-    // SSE жив: следующий триггер проходит весь путь (прогресс снова падает, но ран дропается так же)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    // SSE жив: следующий триггер дропается так же, без фатала
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await sleep(1600);
     expect(callCount(llmFake.run)).toBe(0);
     expect(errors.length).toBe(0);
@@ -463,12 +479,13 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await ready();
 
-    // Пропускаем skip(1)
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
     await sleep(30);
 
-    // Триггер: 1-я попытка прогресса падает, ретрай проходит, ран стартует
-    pushEvent({ ...makeMessage(), type: "message_added" });
+    pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
 
     await waitFor(() => callCount(llmFake.run) === 1, 3000);
     await waitFor(() => callCount(anytypeFake.addChatMessage) === 3, 3000);
@@ -476,5 +493,94 @@ describe("ChatObserver (Unit Tests)", () => {
     const response = callArg<{ text: string }>(anytypeFake.addChatMessage, 2, 2);
     expect(response.text).toBe("Delivered reply");
     expect(nextEvents.length).toBe(1);
+  });
+
+  it("16. Mention другого человека / сообщение без mention -> не триггер", async () => {
+    const { ready, pushEvent, llmFake, nextEvents } = setup();
+
+    await ready();
+
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
+    await sleep(30);
+
+    pushEvent({
+      ...makeMessage({ creator_name: "Alice", id: "plain_msg" }),
+      type: "message_added",
+    });
+    pushEvent({
+      ...makeMessage({
+        creator_name: "Andrii",
+        id: "other_mention",
+        content: {
+          text: "Olena привет",
+          style: "paragraph",
+          marks: [{ type: "mention", param: "_participant_space_member_other" }],
+        },
+      }),
+      type: "message_added",
+    });
+
+    await sleep(50);
+
+    expect(callCount(llmFake.run)).toBe(0);
+    expect(nextEvents.length).toBe(0);
+  });
+
+  it("17. Reply на сообщение бота -> триггер; reply на сообщение человека -> нет", async () => {
+    const { ready, pushEvent, llmFake } = setup();
+
+    await ready();
+
+    pushEvent({
+      ...makeMessage({}, {}),
+      type: "message_added",
+    });
+    await sleep(30);
+
+    // Ботовское сообщение в history — creator в wire-форме (суффикс-матч)
+    pushEvent({
+      ...makeMessage({
+        id: "bot_msg",
+        creator: "_participant_space.1_member_test_bot",
+        creator_name: "TestBot",
+      }),
+      type: "message_added",
+    });
+    pushEvent({
+      ...makeMessage({ id: "human_msg", creator_name: "Alice" }),
+      type: "message_added",
+    });
+    await sleep(30);
+
+    pushEvent({
+      ...makeMessage({ creator_name: "Alice", id: "reply_human" }, { replyTo: "human_msg" }),
+      type: "message_added",
+    });
+    await sleep(50);
+    expect(callCount(llmFake.run)).toBe(0);
+
+    pushEvent({
+      ...makeMessage({ creator_name: "Alice", id: "reply_bot" }, { replyTo: "bot_msg" }),
+      type: "message_added",
+    });
+    await waitFor(() => callCount(llmFake.run) === 1);
+  });
+
+  it("18. Бэкфилл-залп с mention в ХВОСТЕ -> бот отвечает (pending mention)", async () => {
+    const { ready, pushEvent, llmFake } = setup();
+
+    await ready();
+
+    pushEvent({ ...makeMessage({ id: "bf_1" }), type: "message_added" });
+    pushEvent({ ...makeMessage({ id: "bf_2" }), type: "message_added" });
+    pushEvent({
+      ...makeMessage({ id: "bf_3" }, { mentionBot: "member_test_bot" }),
+      type: "message_added",
+    });
+
+    await waitFor(() => callCount(llmFake.run) === 1);
   });
 });

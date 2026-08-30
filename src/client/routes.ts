@@ -9,16 +9,16 @@ export const SPACE_ROUTES: string[] = [
   "- PATCH  /v1/spaces/{space_id} — Update space",
 
   // Chats & Messages
-  "- GET    /v1/spaces/{space_id}/chats — List chats",
+  // "- GET    /v1/spaces/{space_id}/chats — List chats",
   // "- POST   /v1/spaces/{space_id}/chats — Create chat",
-  "- GET    /v1/spaces/{space_id}/chats/{chat_id}/messages — Get chat messages",
+  // "- GET    /v1/spaces/{space_id}/chats/{chat_id}/messages — Get chat messages",
   // "- POST   /v1/spaces/{space_id}/chats/{chat_id}/messages — Add chat message",
   // "- DELETE /v1/spaces/{space_id}/chats/{chat_id}/messages/{message_id} — Delete chat message",
-  "- GET    /v1/spaces/{space_id}/chats/{chat_id}/messages/{message_id} — Get chat message",
+  // "- GET    /v1/spaces/{space_id}/chats/{chat_id}/messages/{message_id} — Get chat message",
   // "- PATCH  /v1/spaces/{space_id}/chats/{chat_id}/messages/{message_id} — Edit chat message",
-  "- POST   /v1/spaces/{space_id}/chats/{chat_id}/messages/{message_id}/reactions — Toggle message reaction",
+  // "- POST   /v1/spaces/{space_id}/chats/{chat_id}/messages/{message_id}/reactions — Toggle message reaction",
   // "- POST   /v1/spaces/{space_id}/chats/{chat_id}/messages/read — Read messages",
-  "- GET    /v1/spaces/{space_id}/chats/{chat_id}/messages/search — Search chat messages",
+  // "- GET    /v1/spaces/{space_id}/chats/{chat_id}/messages/search — Search chat messages",
   // "- POST   /v1/spaces/{space_id}/chats/{chat_id}/reactions/read — Read reactions",
   // "- POST   /v1/spaces/{space_id}/chats/{chat_id}/read_all — Mark chat as read",
 

@@ -46,7 +46,6 @@ export class AnytypeProxy implements OnModuleDestroy {
     const port = this.config.get("HOST_PROXY_PORT");
     const targetUrl = this.config.get("ANYTYPE_API_URL");
 
-    // 2. Стартуем HTTP-сервер
     try {
       this.server = Bun.serve({
         port,
