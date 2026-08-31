@@ -4,7 +4,7 @@ import Value from "typebox/value";
 
 Settings.Set({ correctiveParse: true });
 
-// Общие обязательные поля для любого режима
+// Common required fields for any mode
 export const BaseConfig = Type.Object({
   ANYTYPE_API_URL: Type.String({ minLength: 1 }),
   ANYTYPE_BOT_NAME: Type.String({ minLength: 1 }),
@@ -15,7 +15,7 @@ export const BaseConfig = Type.Object({
 });
 export type BaseConfig = Static<typeof BaseConfig>;
 
-// Конфиг №1: Host (SSH / CLI) Режим
+// Config #1: Host (SSH / CLI) mode
 export const HostConfig = Type.Intersect([
   BaseConfig,
   Type.Object({
@@ -29,7 +29,7 @@ export const HostConfig = Type.Intersect([
 ]);
 export type HostConfig = Static<typeof HostConfig>;
 
-// Конфиг №2: API (BYOK / OpenAI) Режим
+// Config #2: API (BYOK / OpenAI) mode
 export const ApiConfig = Type.Intersect([
   BaseConfig,
   Type.Object({
@@ -41,7 +41,7 @@ export const ApiConfig = Type.Intersect([
 ]);
 export type ApiConfig = Static<typeof ApiConfig>;
 
-// Итоговый Discriminated Union
+// Final discriminated union
 export const AppConfig = Type.Union([HostConfig, ApiConfig]);
 export type AppConfig = Static<typeof AppConfig>;
 
@@ -52,7 +52,7 @@ export function validateConfig(config: Record<string, unknown>): AppConfig {
     catch {}
   }
 
-  // Если ни одна ветка не подошла — собираем честные ошибки валидации
+  // If no schema branch matched, collect proper validation errors
   const errors = [...Value.Errors(AppConfig, config)]
     .map((e) => `  - ${e.instancePath || "/"}: ${e.message}`)
     .join("\n");

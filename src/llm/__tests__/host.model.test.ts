@@ -35,7 +35,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     mockConfig = {
       get: mock((key: string) => {
         const configMap: Record<string, unknown> = {
-          HOST_PROXY_PORT: 0, // 0 = динамический свободный порт ОС
+          HOST_PROXY_PORT: 0, // 0 = dynamic OS free port
           ANYTYPE_BOT_NAME: "TestBot",
           ANYTYPE_API_URL: "http://127.0.0.1:31012",
           HOST_CLI_BIN: "agy",
@@ -73,7 +73,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     execRemoteSpy?.mockRestore();
   });
 
-  it("1. guard share(): done$ и merge подписываются на один cold-defer -> SSH запущен ровно 1 раз", async () => {
+  it("1. guard share(): done$ and merge subscribe to single cold-defer -> SSH spawned exactly 1 time", async () => {
     let execCount = 0;
     const proto = HostModelService.prototype as unknown as HostModelInternals;
     execRemoteSpy = spyOn(proto, "execRemote").mockImplementation(async () => {
@@ -101,7 +101,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     expect((events[0] as LlmResponse).text).toBe("Reply");
   });
 
-  it("2. guard takeUntil(done$): горячий traces$ не блокирует завершение стрима после получения response", async () => {
+  it("2. guard takeUntil(done$): hot traces$ does not block stream completion after receiving response", async () => {
     let resolveExec!: (val: { stdout: string; stderr: string }) => void;
     const proto = HostModelService.prototype as unknown as HostModelInternals;
     execRemoteSpy = spyOn(proto, "execRemote").mockImplementation(
@@ -144,7 +144,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     await waitFor(() => completed, 2000);
     expect(completed).toBe(true);
 
-    // LlmResponse — последний элемент (инвариант стрима)
+    // LlmResponse is the last element (stream invariant)
     expect(events.length).toBe(3);
     expect(events[0]).toBeInstanceOf(LlmAction);
     expect((events[0] as LlmAction).detail).toBe("GET /objects → 200");
@@ -153,7 +153,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     expect(events[2]).toBeInstanceOf(LlmResponse);
     expect((events[2] as LlmResponse).text).toBe("Done reply");
 
-    // Трейс после complete не доставляется
+    // Trace after complete is not delivered
     proxy.traces$.next({
       alias,
       method: "DELETE",
@@ -165,7 +165,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     expect(events.length).toBe(3);
   });
 
-  it("3a. guard finalize: при штатном complete alias отзывается через revokeSpaceAlias", async () => {
+  it("3a. guard finalize: on normal complete, alias is revoked via revokeSpaceAlias", async () => {
     const proto = HostModelService.prototype as unknown as HostModelInternals;
     execRemoteSpy = spyOn(proto, "execRemote").mockResolvedValue({
       stdout: "All good",
@@ -185,7 +185,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     expect(revokeAliasSpy).toHaveBeenCalledWith(alias);
   });
 
-  it("3b. guard finalize: при ошибке execRemote стрим прокидывает ошибку и alias отзывается", async () => {
+  it("3b. guard finalize: on execRemote error, stream forwards error and alias is revoked", async () => {
     const proto = HostModelService.prototype as unknown as HostModelInternals;
     execRemoteSpy = spyOn(proto, "execRemote").mockRejectedValue(new Error("SSH boom"));
 
@@ -205,10 +205,10 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     expect(revokeAliasSpy).toHaveBeenCalledWith(alias);
   });
 
-  it("3c. guard finalize: при ранней отписке (unsubscribe) alias отзывается без завершения джобы", async () => {
+  it("3c. guard finalize: on early unsubscribe, alias is revoked without job completion", async () => {
     const proto = HostModelService.prototype as unknown as HostModelInternals;
     execRemoteSpy = spyOn(proto, "execRemote").mockImplementation(
-      () => new Promise(() => {}), // Никогда не резолвится
+      () => new Promise(() => {}), // Never resolves
     );
 
     const events: LlmEvent[] = [];
@@ -228,13 +228,13 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     });
     expect(events.length).toBe(1);
 
-    // Досрочно отписываемся (сценарий destroy обсервера)
+    // Unsubscribe early (observer destroy scenario)
     sub.unsubscribe();
 
     expect(revokeAliasSpy).toHaveBeenCalledWith(alias);
   });
 
-  it("4. Изоляция трейсов: параллельные джобы получают только свои LlmAction без утечки alias в detail", async () => {
+  it("4. Trace isolation: concurrent jobs receive only their own LlmAction without leaking alias in detail", async () => {
     let resolveA!: (val: { stdout: string; stderr: string }) => void;
     let resolveB!: (val: { stdout: string; stderr: string }) => void;
     let callIndex = 0;
@@ -276,7 +276,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     const aliasB = getAlias(1);
     expect(aliasA).not.toBe(aliasB);
 
-    // Трейсы обоих алиасов вперемешку
+    // Interleaved traces from both aliases
     proxy.traces$.next({
       alias: aliasA,
       method: "GET",
@@ -315,14 +315,14 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     expect((eventsA[0] as LlmAction).detail).toBe("GET /chats → 200");
     expect((eventsA[1] as LlmAction).detail).toBe("POST /files → 201");
     expect((eventsA[2] as LlmResponse).text).toBe("Reply A");
-    // Алиас не должен утекать в detail
+    // Alias must not leak into detail
     expect((eventsA[0] as LlmAction).detail).not.toContain(aliasA);
 
     expect(eventsB.length).toBe(3);
     expect((eventsB[0] as LlmAction).detail).toBe("GET /members → 200");
     expect((eventsB[1] as LlmAction).detail).toBe("GET /types → 200");
     expect((eventsB[2] as LlmResponse).text).toBe("Reply B");
-    // Алиас не должен утекать в detail
+    // Alias must not leak into detail
     expect((eventsB[0] as LlmAction).detail).not.toContain(aliasB);
   });
 });

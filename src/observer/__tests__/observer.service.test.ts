@@ -38,7 +38,7 @@ describe("ObserverService (Unit Tests)", () => {
     ],
   });
 
-  it("1. Регрессия на фикс порядка: синхронная ошибка в run() не оставляет зомби в registry", async () => {
+  it("1. Order fix regression: synchronous error in run() leaves no zombies in registry", async () => {
     const destroySpy = mock(() => {});
     const fakeObserver = makeFakeObserver(
       throwError(() => new Error("sync boom")),
@@ -64,7 +64,7 @@ describe("ObserverService (Unit Tests)", () => {
     expect(callCount(destroySpy)).toBe(1);
   });
 
-  it("2. Роли и доступ: спейс с bot-editor -> обсервер создан; viewer / нет бота / пустое имя -> не создан", async () => {
+  it("2. Roles and access: space with bot-editor -> observer created; viewer / no bot / empty name -> not created", async () => {
     const createdObservers: AbstractObserver[] = [];
     const fakeFactory: ObserverFactory = {
       create: mock((_id: string, _botName: string) => {
@@ -109,7 +109,7 @@ describe("ObserverService (Unit Tests)", () => {
     expect(callCount(fakeFactory.create)).toBe(3);
   });
 
-  it("3. Пропавший спейс: второй checkSpaces без спейса -> destroy вызван, registry очищен", async () => {
+  it("3. Missing space: second checkSpaces without space -> destroy called, registry cleaned up", async () => {
     const destroySpy = mock(() => {});
     const fakeFactory: ObserverFactory = {
       create: mock(() => makeFakeObserver(undefined, destroySpy)),
@@ -124,19 +124,19 @@ describe("ObserverService (Unit Tests)", () => {
     const svc = new ObserverService(anytypeFake, [fakeFactory], createMockConfig());
     const internals = svc as unknown as ObserverServiceInternals;
 
-    // 1-й скан: спейс зарегистрирован
+    // 1st scan: space is registered
     await internals.checkSpaces();
     expect(internals.registry.has("space.1")).toBe(true);
     expect(callCount(destroySpy)).toBe(0);
 
-    // 2-й скан: спейс пропал из Anytype
+    // 2nd scan: space disappeared from Anytype
     spacesList = [];
     await internals.checkSpaces();
     expect(internals.registry.has("space.1")).toBe(false);
     expect(callCount(destroySpy)).toBe(1);
   });
 
-  it("4. Дубликаты: два checkSpaces с тем же спейсом -> factory.create ровно 1 раз", async () => {
+  it("4. Duplicates: multiple checkSpaces with same space -> factory.create exactly 1 time", async () => {
     const fakeFactory: ObserverFactory = {
       create: mock(() => makeFakeObserver()),
     };

@@ -73,7 +73,7 @@ async function setupSpaceContext(
     }
   }
 
-  // "Agent Response" — опциональное улучшение: ошибка создания не фатальна
+  // "Agent Response" is an optional enhancement: creation error is non-fatal
   //TODO: double check type creation logic, cover it with tests
   let agentResponseTypeId: string | undefined;
   try {
@@ -114,7 +114,7 @@ async function setupSpaceContext(
 }
 
 /**
- * Возвращает merged Observable событий всех спейсов, где бот прошёл проверку.
+ * Returns merged Observable of events across all spaces where the bot passed verification.
  */
 export async function initSpaceOrchestrator(
   client: AnytypeService,

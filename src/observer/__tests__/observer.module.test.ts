@@ -28,7 +28,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
   let runSpy: ReturnType<typeof spyOn>;
   let fetchSpy: ReturnType<typeof spyOn>;
 
-  // Изменяемое состояние для роутинга фейкового Anytype API
+  // Mutable state for routing fake Anytype API
   let spacesList: Array<{ id: string; name: string }> = [];
   let membersMap: Record<string, unknown[]> = {};
   let chatsMap: Record<string, Array<{ id: string; name: string }>> = {};
@@ -59,7 +59,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     process.env.OBSERVER_RETRY_DELAY_MS = "10";
     process.env.OBSERVER_SCAN_INTERVAL_MS = "200";
 
-    // Мокаем вызовы LLM до compile(), чтобы не стрелять в реальный SSH/CLI
+    // Mock LLM calls prior to compile() to avoid triggering real SSH/CLI
     initSpy = spyOn(HostModelService.prototype, "init").mockResolvedValue();
     runSpy = spyOn(HostModelService.prototype, "run").mockImplementation(() =>
       of(LlmResponse.create("  Bot reply  ")),
@@ -163,17 +163,17 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     process.env = originalEnv;
   });
 
-  it("1. Спейс с ботом-editor: в registry появился обсервер", async () => {
+  it("1. Space with bot-editor: observer appears in registry", async () => {
     await waitFor(() => internals.registry.has("sp_main"));
     expect(internals.registry.has("sp_main")).toBe(true);
   });
 
-  it("2. Viewer-спейс и безымянный спейс: не появились в registry", async () => {
+  it("2. Viewer space and nameless space: do not appear in registry", async () => {
     expect(internals.registry.has("sp_viewer")).toBe(false);
     expect(internals.registry.has("sp_empty")).toBe(false);
   });
 
-  it("3. Полный цикл: enqueue user message_added -> LLM вызвана, POST /messages отправлен с 'Bot reply', lastActivity обновлена", async () => {
+  it("3. Full cycle: enqueue user message_added -> LLM called, POST /messages sent with 'Bot reply', lastActivity updated", async () => {
     await waitFor(() => sseControllers.length >= 1);
     const controller = sseControllers[sseControllers.length - 1];
     if (!controller) throw new Error("SSE controller not found");
@@ -206,7 +206,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     expect(typeof internals.lastActivity.get("sp_main")).toBe("number");
   });
 
-  it("4. Анти-эхо: enqueue message_added от TestBot -> run не вызывается", async () => {
+  it("4. Anti-echo: enqueue message_added from TestBot -> run is not called", async () => {
     const controller = sseControllers[sseControllers.length - 1];
     if (!controller) throw new Error("SSE controller not found");
     const initialLlmCalls = callCount(runSpy);
@@ -228,11 +228,11 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     expect(callCount(runSpy)).toBe(initialLlmCalls);
   });
 
-  it("5. Фатал и восстановление: GET /chats 500 -> registry очищен; возвращаем 200 -> следующий scan пересоздаёт обсервер", async () => {
+  it("5. Fatal error and recovery: GET /chats 500 -> registry cleared; return 200 -> next scan recreates observer", async () => {
     expect(internals.registry.has("sp_main")).toBe(true);
 
     chatsStatus = 500;
-    // Ошибка SSE -> реконнект/пересоздание
+    // SSE error -> reconnect/recreate
     const ctrl = sseControllers[sseControllers.length - 1];
     if (ctrl) {
       try {
@@ -240,13 +240,13 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
       } catch {}
     }
 
-    // Удаляем из registry; скан попытается пересоздать при сломанном /chats
+    // Remove from registry; scan will attempt to recreate while /chats is broken
     internals.registry.get("sp_main")?.forEach((obs) => {
       obs.destroy();
     });
     internals.registry.delete("sp_main");
 
-    // Скан упирается в /chats 500 -> фатал -> registry пуст
+    // Scan hits /chats 500 -> fatal -> registry empty
     await sleep(250);
     expect(internals.registry.has("sp_main")).toBe(false);
 
@@ -256,7 +256,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     expect(internals.registry.has("sp_main")).toBe(true);
   });
 
-  it("6. Пропавший спейс: /v1/spaces пуст -> registry пуст", async () => {
+  it("6. Disappeared space: /v1/spaces empty -> registry empty", async () => {
     expect(internals.registry.has("sp_main")).toBe(true);
 
     spacesList = [];

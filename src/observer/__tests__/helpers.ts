@@ -31,7 +31,7 @@ export function makeMessage(
     order_id: "0",
     creator: "usr_alice",
     creator_name: "Alice",
-    // Wire-формат created_at — СЕКУНДЫ (пруф: спайк-логи 1788106711)
+    // Wire format of created_at is in SECONDS (proof: spike logs 1788106711)
     created_at: Math.floor(Date.now() / 1000),
     modified_at: Math.floor(Date.now() / 1000),
     content: {
@@ -44,7 +44,7 @@ export function makeMessage(
     ...overrides,
   };
 
-  // Wire-форма mention: "_participant_<...>_<identity>" — isBotId матчит по суффиксу
+  // Wire format of mention: "_participant_<...>_<identity>" — isBotId matches by suffix
   if (opts.mentionBot) {
     msg.content = {
       ...msg.content,

@@ -12,7 +12,7 @@ export class SpaceWorker {
   ) {}
 
   /**
-   * Комбинированный стрим событий спейса: SSE чата + поллинг упоминаний в объектах.
+   * Combined stream of space events: chat SSE + object mention polling.
    */
   observe(pollIntervalMs = 30000): Observable<SpaceEvent> {
     console.log(

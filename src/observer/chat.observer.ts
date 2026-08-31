@@ -27,10 +27,10 @@ import { AbstractObserver, type ObserverFactory } from "./types";
 
 const INITIAL_PROGRESS_TEXT = "⏳ Working...";
 
-// Прогресс курсивом (отделить "бот работает" от контента); серый недоступен — спека не даёт color/font.
+// Progress in italics (to separate "bot is working" from content); grey is unavailable — spec does not support color/font.
 const progressMarks = (text: string) => [{ type: "italic", from: 0, to: text.length }];
 
-// Таймаут+ретрай канарейки — страховка от зависшего HTTP; не-config осознанно (не ручка тюнинга).
+// Canary timeout+retry — insurance against hung HTTP; intentionally not in config (not a tuning knob).
 const PROGRESS_POST_TIMEOUT_MS = 5_000;
 const PROGRESS_RETRY_DELAY_MS = 1_000;
 const SAFE_HTTP_TIMEOUT_MS = 15_000;
@@ -100,9 +100,9 @@ export class ChatObserver extends AbstractObserver {
   }
 
   private subscribeToChat(chatId: string): Observable<unknown> {
-    // Бэкфилл (реплей ~50 сообщений при старте/реконнекте) сливается дебаунсом в ОДНУ
-    // эмиссию — хвост чата. Неотвеченный mention/reply боту -> ответ ("непрочитанное");
-    // зацикливания нет: после ответа хвостом становится сообщение бота, isSelf его отсеивает.
+    // Backfill (replay of ~50 messages on startup/reconnect) is merged via debounce into a SINGLE
+    // emission — the chat tail. An unanswered mention/reply to the bot -> reply ("unread");
+    // no infinite loop: after replying, the bot's message becomes the tail, and isSelf filters it out.
 
     return this.anytype.subscribeChatMessages(this.spaceId, chatId).pipe(
       filter((msg) => msg !== null),
@@ -117,13 +117,13 @@ export class ChatObserver extends AbstractObserver {
       //   return event;
       // }),
 
-      // Дебаунс ДО триггер-фильтра: решает только ХВОСТ окна (skip(1)/фильтра свежести нет):
-      // коннект -> pending mention (mention из середины реплея не будит — рестарты не спамят);
-      // живой залп -> юзеры успели договориться, хвост "стой" отменяет.
+      // Debounce BEFORE trigger filter: only the TAIL of the window matters (no skip(1)/freshness filter):
+      // connect -> pending mention (mention from the middle of replay won't trigger — restarts won't spam);
+      // live burst -> users had time to agree, trailing "stop" cancels.
       debounceTime(this.debounceMs),
 
-      // Анти-эхо по participant-ID (creator_name бывает с мусорными пробелами);
-      // правки/удаления/реакции не будят.
+      // Anti-echo by participant-ID (creator_name sometimes has junk spaces);
+      // edits/deletions/reactions do not trigger.
       filter(
         (msg) =>
           msg.type === "message_added" &&
@@ -136,7 +136,7 @@ export class ChatObserver extends AbstractObserver {
         payload: Array.from(this.history.values()),
       })),
 
-      // exhaustMap: параллельные раны запрещены — триггеры во время генерации дропаются, не очередь.
+      // exhaustMap: concurrent runs are forbidden — triggers during generation are dropped, not queued.
       exhaustMap(({ spaceId, payload }) => {
         this.logger.log(`💬 Generating LLM response for chat ${chatId}...`);
 
@@ -150,15 +150,15 @@ export class ChatObserver extends AbstractObserver {
         );
       }),
 
-      // Обрыв SSE -> retry пересоздаёт всю цепочку, включая getOrCreateChat.
+      // SSE disconnection -> retry recreates the entire chain, including getOrCreateChat.
       retry({ delay: this.retryDelayMs }),
     );
   }
 
   /**
-   * Wire-форма participant-ID (пруф: спайк 2026-08-30 + GET /members):
-   * "_participant_<spaceId с точкой→подчёркиванием>_<identity>" — identity без '_',
-   * поэтому матч по суффиксу, а не по полному равенству.
+   * Wire format of participant-ID (proof: spike 2026-08-30 + GET /members):
+   * "_participant_<spaceId with dot→underscore>_<identity>" — identity without '_',
+   * hence suffix matching instead of exact equality.
    */
   private readonly isBotId = (wire: string | undefined): boolean =>
     Boolean(wire?.endsWith(`_${this.botMemberId}`));
@@ -166,7 +166,7 @@ export class ChatObserver extends AbstractObserver {
   private readonly mentionsBot = (msg: ChatMessageAdded): boolean =>
     Boolean(msg.content.marks?.some((m) => m.type === "mention" && this.isBotId(m.param)));
 
-  // Reply на сообщение старше окна history (50) не триггерит — консервативный предел.
+  // Reply to a message older than the history window (50) does not trigger — conservative limit.
   private readonly repliesToBot = (msg: ChatMessageAdded): boolean => {
     if (!msg.reply_to_message_id) return false;
     const replied = this.history.get(msg.reply_to_message_id);
@@ -174,8 +174,8 @@ export class ChatObserver extends AbstractObserver {
   };
 
   /**
-   * Канарейка: timeout+retry(count:1). Фатал (после ретрая) летит в catchError
-   * exhaustMap'а — LLM даже не вызывается, алиасы не текут.
+   * Canary: timeout+retry(count:1). Fatal error (after retry) goes into catchError
+   * of exhaustMap — LLM is not even called, aliases do not leak.
    */
   private createProgressMessage$(chatId: string): Observable<string> {
     return defer(() =>
@@ -190,10 +190,10 @@ export class ChatObserver extends AbstractObserver {
     );
   }
 
-  // TODO: удалять ProgressMessage после LlmResponse; откат ⚠️ при ошибке/таймауте рана
+  // TODO: delete ProgressMessage after LlmResponse; fallback to ⚠️ on run error/timeout
   /**
-   * scan копит трейсы прямо в LlmAction; LlmResponse пролетает сквозь scan без изменений.
-   * concatMap — строгий FIFO сетевых вызовов, без race condition.
+   * scan accumulates traces directly inside LlmAction; LlmResponse passes through scan unchanged.
+   * concatMap — strict FIFO of network calls without race conditions.
    */
   private processLlmRun$(
     spaceId: string,
@@ -227,8 +227,8 @@ export class ChatObserver extends AbstractObserver {
   }
 
   /**
-   * safe$: одиночный упавший/зависший POST/PATCH гасится (EMPTY), стрим джобы жив.
-   * Канарейка (создание прогресса) идёт мимо safe$ — её фейл дропает весь ран.
+   * safe$: single failed/hanging POST/PATCH is suppressed (EMPTY), keeping the job stream alive.
+   * Canary (progress creation) bypasses safe$ — its failure drops the whole run.
    */
   private safe$(op: () => Promise<unknown>): Observable<unknown> {
     return defer(op).pipe(

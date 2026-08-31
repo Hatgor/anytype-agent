@@ -1,7 +1,7 @@
 /**
- * Документация доступных эндпоинтов Anytype API (спека 2025-11-08)
- * Спейсовые роуты (/v1/spaces/{space_id}/...) для LLM-промпта.
- * Можно точечно комментировать/отключать отдельные строки, чтобы не путать агента.
+ * Documentation of available Anytype API endpoints (spec 2025-11-08).
+ * Space routes (/v1/spaces/{space_id}/...) for LLM prompt.
+ * Individual lines can be commented out/disabled selectively to avoid confusing the agent.
  */
 export const SPACE_ROUTES: string[] = [
   // Space

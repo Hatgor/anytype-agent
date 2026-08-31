@@ -5,8 +5,8 @@ export type AgentEvent = any;
 
 export interface ObserverFactory {
   /**
-   * @param botMemberId identity из members API; в wire-форме creator/mention param это
-   *                    "_participant_<spaceId>_<identity>" — матч по суффиксу.
+   * @param botMemberId identity from members API; in the wire form of creator/mention param this is
+   *                    "_participant_<spaceId>_<identity>" — matched by suffix.
    */
   create(id: string, botName: string, botMemberId: string): AbstractObserver;
 }
@@ -16,9 +16,9 @@ export abstract class AbstractObserver {
   protected readonly destroy$ = new Subject<void>();
 
   /**
-   * Жизненный цикл актора: next — heartbeat на каждый отправленный ответ;
-   * error — фатал (политика гашения спейса на стороне сервиса);
-   * complete — плановое выключение через destroy().
+   * Actor lifecycle: next — heartbeat on every sent reply;
+   * error — fatal error (space shutdown policy on the service side);
+   * complete — graceful shutdown via destroy().
    */
   abstract run(): Observable<unknown>;
 

@@ -28,6 +28,6 @@ services:
     depends_on:
       - anytype-cli
     ports:
-      # Публикуем только на loopback хоста: прокси аутентифицируется 6-значным алиасом,
-      # наружу в LAN порт торчать не должен
+      # Expose only to host loopback: proxy authenticates via a 6-digit alias,
+      # and must not be exposed to the LAN
       - "127.0.0.1:31013:31013"

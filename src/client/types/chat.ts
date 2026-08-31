@@ -15,7 +15,7 @@ export const ChatMessagePayload = Type.Object({
   creator_name: Type.String(),
   created_at: Type.Number(),
   modified_at: Type.Number(),
-  // Пруф формы (спайк 2026-08-30): reply — топ-левел поле, mention — mark в content
+  // Payload shape proof (spike 2026-08-30): reply is a top-level field, mention is a mark inside content
   reply_to_message_id: Type.Optional(Type.String()),
   content: Type.Object({
     text: Type.String(),

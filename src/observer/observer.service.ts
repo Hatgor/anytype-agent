@@ -33,7 +33,7 @@ export class ObserverService implements OnApplicationBootstrap, OnModuleDestroy 
 
   private findActiveBot(spaceName: string, members: Member[]): Member | null {
     try {
-      // Безымянные — технические спейсы, пропускаем.
+      // Nameless spaces are technical spaces, skip them.
       if (!spaceName.length) return null;
 
       const bot = members.find(

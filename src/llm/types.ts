@@ -4,13 +4,13 @@ export abstract class AbstractLlmService {
   protected readonly logger = new Logger(this.constructor.name);
 
   /**
-   * Инициализация провайдера (SSH, ключи, CLI) при старте — быстрый фейл битого конфига.
+   * Provider initialization (SSH, keys, CLI) on startup — fast fail on invalid config.
    */
   abstract init(): Promise<void>;
 
   /**
-   * Инвариант стрима: ровно один LlmResponse, он — последний элемент, затем complete.
-   * Промежуточные события — LlmAction (прогресс); ошибки летят через error-канал.
+   * Stream invariant: exactly one LlmResponse as the final element, followed by complete.
+   * Intermediate events are LlmAction (progress); errors are emitted through the error channel.
    */
   abstract run(spaceId: string, payload: object): Observable<LlmEvent>;
 }

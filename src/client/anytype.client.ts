@@ -8,8 +8,8 @@ import Value from "typebox/value";
 import type { AppConfig } from "../app.config";
 
 /**
- * Транспортный слой для демона Anytype: HTTP, заголовки, аутентификация, SSE-стриминг.
- * Ничего не знает о доменных сущностях (spaces, chats, types) — это инвариант границы.
+ * Transport layer for Anytype daemon: HTTP, headers, authentication, SSE streaming.
+ * Has no knowledge of domain entities (spaces, chats, types) — boundary invariant.
  */
 export class AnytypeClient {
   constructor(
@@ -35,7 +35,7 @@ export class AnytypeClient {
 
     let raw: unknown;
     try {
-      // 200-ответы мутаций могут приходить с пустым телом — спека не определяет схему
+      // 200 responses for mutations may arrive with an empty body — spec does not define a schema
       const text = await res.text();
       raw = text.length > 0 ? JSON.parse(text) : {};
     } catch (jsonErr: unknown) {
@@ -165,7 +165,7 @@ export class AnytypeClient {
   }
 
   /**
-   * Healthcheck: на 401/403 падает сразу, без ретраев.
+   * Healthcheck: fails immediately on 401/403 without retries.
    */
   async checkHealth(
     healthcheckPath = "/v1/spaces",
@@ -226,7 +226,7 @@ export class AnytypeClient {
     log.log(`Initializing Anytype client for ${apiUrl}...`);
     const client = new AnytypeClient(log, apiUrl.replace(/\/$/, ""), apiKey);
 
-    // Блокируем бутстрап, пока API недоступен или токен невалиден
+    // Block bootstrap until API is reachable and token is valid
     await client.checkHealth();
     log.log(`Anytype client verified and ready at ${apiUrl}`);
     return client;

@@ -87,12 +87,12 @@ describe("ChatObserver (Unit Tests)", () => {
     };
   };
 
-  it("1. Анти-эхо: message_added от бота (creator = participant-ID) -> run не вызывается, даже с self-mention", async () => {
+  it("1. Anti-echo: message_added from bot (creator = participant-ID) -> run is not called, even with self-mention", async () => {
     const { ready, pushEvent, llmFake, nextEvents } = setup();
 
     await ready();
 
-    // Эхо бота (wire-форма creator)
+    // Bot echo (creator wire format)
     pushEvent({
       ...makeMessage({ creator: "_participant_space.1_member_test_bot", creator_name: "TestBot" }),
       type: "message_added",
@@ -111,7 +111,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(nextEvents.length).toBe(0);
   });
 
-  it("2. Не-триггеры: message_updated / message_deleted / reactions_updated от юзера -> LLM не вызывается", async () => {
+  it("2. Non-triggers: message_updated / message_deleted / reactions_updated from user -> LLM is not called", async () => {
     const { ready, pushEvent, llmFake, nextEvents } = setup();
 
     await ready();
@@ -127,12 +127,12 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(nextEvents.length).toBe(0);
   });
 
-  it("3. Бэкфилл-залп: mention в середине, хвост без mention -> НЕ будит; свежий mention -> будит", async () => {
+  it("3. Backfill burst: mention in the middle, tail without mention -> does NOT wake; fresh mention -> wakes", async () => {
     const { ready, pushEvent, llmFake } = setup();
 
     await ready();
 
-    // Рестарты не спамят: mention из середины реплея не будит, решает хвост окна
+    // Restarts do not spam: mention from the middle of replay does not wake, window tail decides
     pushEvent({
       ...makeMessage({ id: "bf_1" }, { mentionBot: "member_test_bot" }),
       type: "message_added",
@@ -151,12 +151,12 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(callCount(llmFake.run)).toBe(1);
   });
 
-  it("4. Дебаунс: 2-3 сообщения подряд в пределах окна -> ОДИН вызов run с накопленной историей", async () => {
+  it("4. Debounce: 2-3 consecutive messages within window -> ONE run call with accumulated history", async () => {
     const { ready, pushEvent, llmFake } = setup({ debounceMs: 30 });
 
     await ready();
 
-    // Прогрев: залп без mention — не триггер, наполняет history
+    // Warm-up: burst without mention is not a trigger, populates history
     pushEvent({
       ...makeMessage({ creator_name: "Alice", id: "msg_init" }, {}),
       type: "message_added",
@@ -194,7 +194,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(ids).toContain("m3");
   });
 
-  it("5. Heartbeat: на один отправленный ответ ровно один next() в run()", async () => {
+  it("5. Heartbeat: exactly one next() in run() for each sent response", async () => {
     const { ready, pushEvent, nextEvents } = setup();
 
     await ready();
@@ -211,7 +211,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(nextEvents.length).toBe(1);
   });
 
-  it("6. Прогресс постится первым, ответ — вторым; трим: '  Bot reply  ' -> 'Bot reply'", async () => {
+  it("6. Progress is posted first, response second; trim: '  Bot reply  ' -> 'Bot reply'", async () => {
     const { ready, pushEvent, anytypeFake } = setup({
       llmHandler: () => of(LlmResponse.create("  Bot reply  ")),
     });
@@ -239,7 +239,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(addBody.text).toBe("Bot reply");
   });
 
-  it("7. Пустой ответ LLM ('' и '   ') -> addChatMessage не вызывался, heartbeat не бился, поток жив", async () => {
+  it("7. Empty LLM response ('' and '   ') -> addChatMessage not called, no heartbeat emitted, stream alive", async () => {
     let count = 0;
     const { ready, pushEvent, anytypeFake, nextEvents } = setup({
       llmHandler: () => {
@@ -259,7 +259,7 @@ describe("ChatObserver (Unit Tests)", () => {
     pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await sleep(50);
 
-    // Постился только прогресс; heartbeat нет (ответ уходит в EMPTY, стрим жив)
+    // Only progress was posted; no heartbeat (response goes to EMPTY, stream alive)
     expect(callCount(anytypeFake.addChatMessage)).toBe(1);
     expect(nextEvents.length).toBe(0);
 
@@ -268,7 +268,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(nextEvents.length).toBe(1);
   });
 
-  it("8. LLM кидает ошибку -> addChatMessage не вызывался, heartbeat не бился, поток жив (последующий триггер работает)", async () => {
+  it("8. LLM throws error -> addChatMessage not called, no heartbeat emitted, stream alive (subsequent trigger works)", async () => {
     let count = 0;
     const { ready, pushEvent, anytypeFake, nextEvents } = setup({
       llmHandler: () => {
@@ -289,7 +289,7 @@ describe("ChatObserver (Unit Tests)", () => {
     pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await sleep(50);
 
-    // Постился только прогресс; heartbeat нет (ответ уходит в EMPTY, стрим жив)
+    // Only progress was posted; no heartbeat (response goes to EMPTY, stream alive)
     expect(callCount(anytypeFake.addChatMessage)).toBe(1);
     expect(nextEvents.length).toBe(0);
 
@@ -298,13 +298,13 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(nextEvents.length).toBe(1);
   });
 
-  it("9. Упавший пост ответа не роняет стрим: прогресс прошёл, ответ исчез, следующий триггер доставляет ответ", async () => {
+  it("9. Failed response post does not drop stream: progress succeeded, response disappeared, next trigger delivers response", async () => {
     const { ready, pushEvent, anytypeFake, nextEvents } = setup();
 
     let responseFailures = 0;
     (anytypeFake.addChatMessage as ReturnType<typeof mock>).mockImplementation(
       async (_spaceId: string, _chatId: string, body: { text: string }) => {
-        // Прогресс-посты проходят, первый ответный — падает
+        // Progress posts succeed, first reply post fails
         if (!body.text.startsWith("⏳")) {
           responseFailures++;
           if (responseFailures === 1) throw new Error("API post error");
@@ -321,7 +321,7 @@ describe("ChatObserver (Unit Tests)", () => {
     });
     await sleep(30);
 
-    // Ответный пост упал — safe$ заглушил, heartbeat нет
+    // Reply post failed — silenced by safe$, no heartbeat
     pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await sleep(50);
     expect(nextEvents.length).toBe(0);
@@ -331,7 +331,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(callCount(anytypeFake.addChatMessage)).toBe(4);
   });
 
-  it("10. Фатал: getChats reject -> run() error'ится", async () => {
+  it("10. Fatal error: getChats reject -> run() emits error", async () => {
     const { errors, subscription } = setup({
       getChats: async () => {
         throw new Error("Network fatal getChats");
@@ -343,7 +343,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(subscription.closed).toBe(true);
   });
 
-  it("11. SSE error(): run() НЕ error'ится (retry держит). Реплей бэкфилла после reconnect не будит", async () => {
+  it("11. SSE error(): run() does NOT error (held by retry). Backfill replay after reconnect does not wake", async () => {
     const { ready, errors, getCurrentSubject, pushEvent, llmFake } = setup({
       retryDelayMs: 20,
     });
@@ -376,7 +376,7 @@ describe("ChatObserver (Unit Tests)", () => {
     await waitFor(() => callCount(llmFake.run) === 2);
   });
 
-  it("12. destroy() -> run() complete; события после destroy не будят LLM", async () => {
+  it("12. destroy() -> run() complete; events after destroy do not wake LLM", async () => {
     const { ready, observer, pushEvent, llmFake, getCompleted } = setup();
 
     await ready();
@@ -392,7 +392,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(callCount(llmFake.run)).toBe(0);
   });
 
-  it("13. LlmAction -> editChatMessage прогресс-сообщения с накопленным текстом, новых сообщений не постит", async () => {
+  it("13. LlmAction -> editChatMessage of progress message with accumulated text, does not post new messages", async () => {
     const { ready, pushEvent, anytypeFake } = setup({
       llmHandler: () =>
         of(
@@ -414,7 +414,7 @@ describe("ChatObserver (Unit Tests)", () => {
 
     await waitFor(() => callCount(anytypeFake.addChatMessage) === 2);
 
-    // Каждый edit переписывает весь накопленный текст
+    // Each edit overwrites the full accumulated text
     expect(callCount(anytypeFake.editChatMessage)).toBe(2);
     const edit1 = callArg<{ text: string }>(anytypeFake.editChatMessage, 0, 3);
     expect(edit1.text).toBe("⏳ Working...\nGET /objects → 200");
@@ -429,7 +429,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(marks).toEqual([{ type: "italic", from: 0, to: edit2.text.length }]);
   });
 
-  it("14. Прогресс не создался после ретрая -> весь ран дропнут, llm.run не вызывался, SSE жив", async () => {
+  it("14. Progress not created after retry -> entire run dropped, llm.run not called, SSE alive", async () => {
     const { ready, pushEvent, anytypeFake, llmFake, nextEvents, errors } = setup();
 
     (anytypeFake.addChatMessage as ReturnType<typeof mock>).mockImplementation(async () => {
@@ -444,24 +444,24 @@ describe("ChatObserver (Unit Tests)", () => {
     });
     await sleep(30);
 
-    // Обе попытки (исходная + ретрай) падают — ран дропнут
+    // Both attempts (initial + retry) fail — run is dropped
     pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
 
-    // Ждём дольше PROGRESS_RETRY_DELAY_MS
+    // Wait longer than PROGRESS_RETRY_DELAY_MS
     await sleep(1600);
     expect(callCount(anytypeFake.addChatMessage)).toBe(2);
     expect(callCount(llmFake.run)).toBe(0);
     expect(nextEvents.length).toBe(0);
     expect(errors.length).toBe(0);
 
-    // SSE жив: следующий триггер дропается так же, без фатала
+    // SSE alive: next trigger is dropped identically, without fatal error
     pushEvent({ ...makeMessage({}, { mentionBot: "member_test_bot" }), type: "message_added" });
     await sleep(1600);
     expect(callCount(llmFake.run)).toBe(0);
     expect(errors.length).toBe(0);
   });
 
-  it("15. Первая попытка прогресса упала, ретрай удался -> ран выполняется, ответ доставлен", async () => {
+  it("15. First progress attempt fails, retry succeeds -> run executes, response delivered", async () => {
     const { ready, pushEvent, anytypeFake, llmFake, nextEvents } = setup({
       llmHandler: () => of(LlmResponse.create("Delivered reply")),
     });
@@ -495,7 +495,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(nextEvents.length).toBe(1);
   });
 
-  it("16. Mention другого человека / сообщение без mention -> не триггер", async () => {
+  it("16. Mention of another person / message without mention -> not a trigger", async () => {
     const { ready, pushEvent, llmFake, nextEvents } = setup();
 
     await ready();
@@ -515,7 +515,7 @@ describe("ChatObserver (Unit Tests)", () => {
         creator_name: "Andrii",
         id: "other_mention",
         content: {
-          text: "Olena привет",
+          text: "Hello Olena",
           style: "paragraph",
           marks: [{ type: "mention", param: "_participant_space_member_other" }],
         },
@@ -529,7 +529,7 @@ describe("ChatObserver (Unit Tests)", () => {
     expect(nextEvents.length).toBe(0);
   });
 
-  it("17. Reply на сообщение бота -> триггер; reply на сообщение человека -> нет", async () => {
+  it("17. Reply to bot message -> trigger; reply to human message -> not a trigger", async () => {
     const { ready, pushEvent, llmFake } = setup();
 
     await ready();
@@ -540,7 +540,7 @@ describe("ChatObserver (Unit Tests)", () => {
     });
     await sleep(30);
 
-    // Ботовское сообщение в history — creator в wire-форме (суффикс-матч)
+    // Bot message in history — creator in wire format (suffix match)
     pushEvent({
       ...makeMessage({
         id: "bot_msg",
@@ -569,7 +569,7 @@ describe("ChatObserver (Unit Tests)", () => {
     await waitFor(() => callCount(llmFake.run) === 1);
   });
 
-  it("18. Бэкфилл-залп с mention в ХВОСТЕ -> бот отвечает (pending mention)", async () => {
+  it("18. Backfill burst with mention at the TAIL -> bot replies (pending mention)", async () => {
     const { ready, pushEvent, llmFake } = setup();
 
     await ready();

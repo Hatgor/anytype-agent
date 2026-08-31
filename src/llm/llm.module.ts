@@ -24,11 +24,11 @@ export const LLM_SERVICE = Symbol.for("LLM_SERVICE");
         hostModel: HostModelService,
         // apiModel: ApiModelService,
       ): Promise<AbstractLlmService> => {
-        // TODO: придумать как подружить ConfigService с Union типами
+        // TODO: figure out how to make ConfigService work smoothly with Union types
         // const isOpenAi = Boolean(config.get("OPENAI_API_KEY" as keyof AppConfig));
         const service: AbstractLlmService = hostModel;
 
-        // init() в фабрике DI: битый конфиг/SSH фейлится сразу при бутстрапе модуля
+        // init() inside DI factory: invalid config/SSH fails immediately during module bootstrap
         await service.init();
         return service;
       },

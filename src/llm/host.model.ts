@@ -57,8 +57,8 @@ export class HostModelService extends AbstractLlmService {
     const traces$: Observable<LlmAction> = this.proxy.traces$.pipe(
       filter((t) => t.alias === alias),
       map((t) => LlmAction.create(`${t.method} ${t.path.split(alias)[1] || "/"} → ${t.status}`)),
-      catchError(() => EMPTY), // телеметрия не роняет джобу
-      takeUntil(done$), // ответ получен → телеметрия стоп
+      catchError(() => EMPTY), // telemetry errors do not crash the job
+      takeUntil(done$), // response received → stop telemetry
     );
 
     return merge(
@@ -80,12 +80,12 @@ export class HostModelService extends AbstractLlmService {
 
       this.logger.log(`🤖 Executing host agent via SSH (prompt length: ${prompt.length} chars)...`);
 
-      // TODO: флаги специфичны для Antigravity CLI — по сервису на каждый инструмент?
-      // TODO: передавать конфиг в аргументах, чтобы Agy брал самую быструю модель
+      // TODO: flags are specific to Antigravity CLI — separate service for each tool?
+      // TODO: pass config in arguments so Agy selects the fastest model
 
-      // Флаги: --dangerously-skip-permissions (headless вызовы инструментов без TTY),
-      // --disable-slash-commands (парсер слэш-команд не съедает URL /v1/spaces);
-      // $(cat) — промпт из STDIN без base64 и шелл-экранирования.
+      // Flags: --dangerously-skip-permissions (headless tool invocation without TTY),
+      // --disable-slash-commands (slash command parser won't consume /v1/spaces URL);
+      // $(cat) — prompt from STDIN without base64 or shell escaping.
       const remoteCommand = `export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"; ${this.cliBin} -p "$(cat)" --dangerously-skip-permissions --disable-slash-commands`;
 
       const { stdout, stderr } = await this.execRemote(remoteCommand, prompt, 120_000);
