@@ -9,14 +9,27 @@ services:
       - "31012:31012"
 
   anytype-agent:
-    build: .
+    build:
+      context: .
+      target: dev
     environment:
-      - ANYTYPE_API_URL=http://anytype-cli:31012
-      - ANYTYPE_BOT_NAME=GeminiDevBot
-      - ANYTYPE_API_KEY=CX3NvcW5ofQlmF17BKOGjMnBakMtlj6D7qcH+qep+x0=
+      - ANYTYPE_API_URL=${ANYTYPE_API_URL}
+      - ANYTYPE_BOT_NAME=${ANYTYPE_BOT_NAME}
+      - ANYTYPE_API_KEY=${ANYTYPE_API_KEY}
+
+      # Host SSH + AGY
+      # LLM_MODE=host requires HOST_SSH_USER, HOST_SSH_KEY_PATH, HOST_CLI_BIN
+      - LLM_MODE=host
+      - HOST_SSH_USER=${HOST_SSH_USER}
+      - HOST_SSH_KEY_PATH=${HOST_SSH_KEY_PATH}
+      - HOST_CLI_BIN=${HOST_CLI_BIN}
+      # - HOST_SSH_HOST=host.docker.internal
     volumes:
       - ./src:/app/src
+      - ~/.ssh/id_ed25519:/keys/id_ed25519:ro
     depends_on:
       - anytype-cli
     ports:
-      - "31013:31013"
+      # Expose only to host loopback: proxy authenticates via a 6-digit alias,
+      # and must not be exposed to the LAN
+      - "127.0.0.1:31013:31013"

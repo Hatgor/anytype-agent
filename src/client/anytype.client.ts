@@ -1,16 +1,15 @@
 import { Logger } from "@nestjs/common";
 import type { ConfigService } from "@nestjs/config";
-import { createParser } from "eventsource-parser";
+import { EventSourceParserStream } from "eventsource-parser/stream";
 import { defer, firstValueFrom, from, type Observable, timer } from "rxjs";
-import { finalize, retry, tap } from "rxjs/operators";
+import { finalize, map, retry, switchMap, tap } from "rxjs/operators";
 import type { Static, TSchema } from "typebox";
 import Value from "typebox/value";
 import type { AppConfig } from "../app.config";
 
 /**
- * Low-level HTTP and SSE transport client for Anytype daemon.
- * Knows NOTHING about domain entities (spaces, chats, types).
- * Strictly responsible for transport, headers, authentication, resilience, and SSE streaming.
+ * Transport layer for Anytype daemon: HTTP, headers, authentication, SSE streaming.
+ * Has no knowledge of domain entities (spaces, chats, types) — boundary invariant.
  */
 export class AnytypeClient {
   constructor(
@@ -25,6 +24,38 @@ export class AnytypeClient {
     path: string,
     init: RequestInit = {},
   ): Promise<Static<T>> {
+    const res = await this.requestRaw(path, init);
+
+    if (!res.ok) {
+      const errorBody = await res.text().catch(() => "");
+      throw new Error(
+        `[AnytypeClient ${res.status}] ${res.statusText}: ${errorBody || "Request failed"}`,
+      );
+    }
+
+    let raw: unknown;
+    try {
+      // 200 responses for mutations may arrive with an empty body — spec does not define a schema
+      const text = await res.text();
+      raw = text.length > 0 ? JSON.parse(text) : {};
+    } catch (jsonErr: unknown) {
+      const message = jsonErr instanceof Error ? jsonErr.message : String(jsonErr);
+      throw new Error(`[AnytypeClient] Failed to parse JSON response from ${path}: ${message}`);
+    }
+
+    try {
+      return Value.Parse(schema, raw);
+    } catch (_err: unknown) {
+      const errors = [...Value.Errors(schema, raw)]
+        .map((e) => `  - ${e.instancePath || "/"}: ${e.message} (schema: ${e.schemaPath})`)
+        .join("\n");
+      throw new Error(
+        `[AnytypeClient] Schema validation failed for response from ${path}:\n${errors}`,
+      );
+    }
+  }
+
+  async requestRaw(path: string, init: RequestInit = {}): Promise<Response> {
     const url = `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -41,34 +72,10 @@ export class AnytypeClient {
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`[AnytypeClient] Connection failed to ${url}: ${message}`);
+      throw new Error(`Connection failed to ${url}: ${message}`);
     }
 
-    if (!res.ok) {
-      const errorBody = await res.text().catch(() => "");
-      throw new Error(
-        `[AnytypeClient ${res.status}] ${res.statusText}: ${errorBody || "Request failed"}`,
-      );
-    }
-
-    let raw: unknown;
-    try {
-      raw = await res.json();
-    } catch (jsonErr: unknown) {
-      const message = jsonErr instanceof Error ? jsonErr.message : String(jsonErr);
-      throw new Error(`[AnytypeClient] Failed to parse JSON response from ${path}: ${message}`);
-    }
-
-    try {
-      return Value.Parse(schema, raw);
-    } catch (_err: unknown) {
-      const errors = [...Value.Errors(schema, raw)]
-        .map((e) => `  - ${e.instancePath || "/"}: ${e.message} (schema: ${e.schemaPath})`)
-        .join("\n");
-      throw new Error(
-        `[AnytypeClient] Schema validation failed for response from ${path}:\n${errors}`,
-      );
-    }
+    return res;
   }
 
   async get<T extends TSchema>(schema: T, path: string, init?: RequestInit): Promise<Static<T>> {
@@ -88,109 +95,77 @@ export class AnytypeClient {
     });
   }
 
+  async patch<T extends TSchema>(
+    schema: T,
+    path: string,
+    body?: unknown,
+    init?: RequestInit,
+  ): Promise<Static<T>> {
+    return this.request(schema, path, {
+      ...init,
+      method: "PATCH",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  }
+
   async delete<T extends TSchema>(schema: T, path: string, init?: RequestInit): Promise<Static<T>> {
     return this.request(schema, path, { ...init, method: "DELETE" });
   }
 
-  /**
-   * Generic SSE stream subscriber. Emits raw parsed events as an Observable.
-   */
   stream(path: string): Observable<{ event?: string; data: unknown }> {
     return defer(() => {
       const abortController = new AbortController();
-      const stream$ = from(this.fetchEventStream(path, abortController.signal));
+      const url = `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+      const headers = {
+        Accept: "text/event-stream",
+        "Anytype-Version": this.apiVersion,
+        Authorization: `Bearer ${this.apiKey}`,
+      };
 
-      return stream$.pipe(
+      this.logger.log(`🔌 [AnytypeClient SSE] Subscribing to: ${url}`);
+
+      return from(this.getRawStream(url, headers, abortController.signal)).pipe(
+        switchMap((eventStream) => from(eventStream)),
+        map((event) => {
+          let parsedData: unknown;
+          try {
+            parsedData = JSON.parse(event.data);
+          } catch {
+            parsedData = event.data;
+          }
+          return { event: event.event, data: parsedData };
+        }),
         finalize(() => {
-          this.logger.log(`🛑 [AnytypeClient SSE] Finalizing and aborting connection for ${path}`);
+          this.logger.log(`🛑 [AnytypeClient SSE] Aborting connection for ${path}`);
           abortController.abort();
         }),
       );
     });
   }
 
-  /**
-   * Private async generator that connects to the SSE endpoint and yields parsed events.
-   */
-  private async *fetchEventStream(
-    path: string,
+  private async getRawStream(
+    url: string,
+    headers: Record<string, string>,
     signal: AbortSignal,
-  ): AsyncGenerator<{ event?: string; data: unknown }> {
-    const url = `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
-    const headers = {
-      Accept: "text/event-stream",
-      "Anytype-Version": this.apiVersion,
-      Authorization: `Bearer ${this.apiKey}`,
-    };
+  ): Promise<ReadableStream> {
+    return fetch(url, { headers, signal }).then(async (res) => {
+      if (!res.ok || !res.body) {
+        const errorBody = await res.text().catch(() => "");
+        throw new Error(
+          `[AnytypeClient SSE ${res.status}] Failed to connect: ${errorBody || res.statusText}`,
+        );
+      }
 
-    this.logger.log(`🔌 [AnytypeClient SSE] Initiating connection to: ${url}`);
+      this.logger.log(`✅ [AnytypeClient SSE] Stream established with status ${res.status}`);
 
-    let res: Response;
-    try {
-      res = await fetch(url, { headers, signal });
-    } catch (err: unknown) {
-      if (signal.aborted) return;
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`❌ [AnytypeClient SSE] Network failure connecting to ${url}: ${message}`);
-      throw err;
-    }
-
-    if (!res.ok || !res.body) {
-      const errorBody = await res.text().catch(() => "");
-      throw new Error(
-        `[AnytypeClient SSE ${res.status}] Failed to connect: ${errorBody || res.statusText}`,
-      );
-    }
-
-    this.logger.log(`✅ [AnytypeClient SSE] Stream established with status ${res.status}`);
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    const queue: { event?: string; data: unknown }[] = [];
-
-    const parser = createParser({
-      onEvent(event) {
-        if (event.data === undefined) return;
-        let parsedData: unknown;
-        try {
-          parsedData = JSON.parse(event.data);
-        } catch {
-          parsedData = event.data;
-        }
-        queue.push({ event: event.event, data: parsedData });
-      },
+      return res.body
+        .pipeThrough(new TextDecoderStream())
+        .pipeThrough(new EventSourceParserStream());
     });
-
-    try {
-      while (!signal.aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const decodedText = decoder.decode(value, { stream: true });
-        parser.feed(decodedText);
-        while (queue.length > 0) {
-          const item = queue.shift();
-          if (item) yield item;
-        }
-      }
-    } catch (readErr: unknown) {
-      if (!signal.aborted) {
-        throw readErr;
-      }
-    } finally {
-      try {
-        await reader.cancel().catch(() => {});
-      } catch {
-        // ignore cancel error
-      }
-      reader.releaseLock();
-      this.logger.log(`🔒 [AnytypeClient SSE] Reader lock released for ${path}`);
-    }
   }
 
   /**
-   * Healthcheck helper verifying basic connectivity to the API endpoint.
-   * Fails fast on 401/403 authentication errors.
+   * Healthcheck: fails immediately on 401/403 without retries.
    */
   async checkHealth(
     healthcheckPath = "/v1/spaces",
@@ -218,7 +193,7 @@ export class AnytypeClient {
         delay: (error: unknown, retryCount: number) => {
           const msg = error instanceof Error ? error.message : String(error);
           if (msg.includes("Authentication failed")) {
-            throw error; // Fail immediately on bad credentials
+            throw error;
           }
           this.logger.log(
             `⏳ [AnytypeClient] Waiting for Anytype API (${this.baseUrl})... (attempt ${retryCount}/${maxAttempts})`,
@@ -244,14 +219,14 @@ export class AnytypeClient {
   }
 
   static async factory(config: ConfigService<AppConfig, true>) {
-    const log = new Logger("AnytypeClientFactory");
-    const apiUrl = config.get("ANYTYPE_API_URL", { infer: true });
-    const apiKey = config.get("ANYTYPE_API_KEY", { infer: true });
+    const log = new Logger("AnytypeClient");
+    const apiUrl = config.get("ANYTYPE_API_URL");
+    const apiKey = config.get("ANYTYPE_API_KEY");
 
     log.log(`Initializing Anytype client for ${apiUrl}...`);
     const client = new AnytypeClient(log, apiUrl.replace(/\/$/, ""), apiKey);
 
-    // Healthcheck: ensures API is reachable and token is valid before app bootstrap completes
+    // Block bootstrap until API is reachable and token is valid
     await client.checkHealth();
     log.log(`Anytype client verified and ready at ${apiUrl}`);
     return client;

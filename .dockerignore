@@ -1,0 +1,21 @@
+# Secrets & local environment
+.env
+.env.*
+**/*.log
+
+# Local artifacts & caches
+node_modules
+.git
+.zed
+.anytype
+.github
+.agents
+.DS_Store
+coverage
+openapi.yaml
+docker-compose*.yml
+Dockerfile
+
+# Tests & test fixtures
+**/__tests__
+**/*.test.ts

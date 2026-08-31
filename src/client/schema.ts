@@ -166,12 +166,11 @@ export const ChatResponse = Type.Object(
 );
 export type ChatResponse = Static<typeof ChatResponse>;
 
-export const CreateChatRequest = Type.Object({
-  space_id: Type.String(),
-  name: Type.String(),
+export const CreateChatBody = Type.Object({
+  name: Type.String({ minLength: 1 }),
   icon: Type.Optional(Icon),
 });
-export type CreateChatRequest = Static<typeof CreateChatRequest>;
+export type CreateChatBody = Static<typeof CreateChatBody>;
 
 export const MessageContent = Type.Object(
   {
@@ -200,28 +199,65 @@ export type ChatMessage = Static<typeof ChatMessage>;
 
 export const ChatMessagesResponse = Type.Object(
   {
-    data: Type.Array(ChatMessage),
+    messages: Type.Array(ChatMessage),
     pagination: Type.Optional(PaginationMeta),
   },
   { additionalProperties: true },
 );
 export type ChatMessagesResponse = Static<typeof ChatMessagesResponse>;
 
-export const ChatMessageResponse = Type.Object(
+export const EmptyResponse = Type.Object({}, { additionalProperties: true });
+export type EmptyResponse = Static<typeof EmptyResponse>;
+
+export const TextMark = Type.Object(
   {
-    message: ChatMessage,
+    type: Type.Optional(Type.String()),
+    from: Type.Optional(Type.Number()),
+    to: Type.Optional(Type.Number()),
+    param: Type.Optional(Type.String()),
   },
   { additionalProperties: true },
 );
-export type ChatMessageResponse = Static<typeof ChatMessageResponse>;
+export type TextMark = Static<typeof TextMark>;
 
-export const AddChatMessageRequest = Type.Object({
-  space_id: Type.String(),
-  chat_id: Type.String(),
-  text: Type.String(),
-  reply_to_message_id: Type.Optional(Type.String()),
+export const ChatAttachment = Type.Object(
+  {
+    type: Type.Optional(Type.String()),
+    target: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
+export type ChatAttachment = Static<typeof ChatAttachment>;
+
+export const AddChatMessageResponse = Type.Object(
+  {
+    message_id: Type.String(),
+  },
+  { additionalProperties: true },
+);
+export type AddChatMessageResponse = Static<typeof AddChatMessageResponse>;
+
+export const AddChatMessageBody = Type.Object({
+  text: Type.String({ minLength: 1 }),
+  reply_to_message_id: Type.Optional(Type.String({ minLength: 1 })),
+  style: Type.Optional(Type.String()),
+  attachments: Type.Optional(Type.Array(ChatAttachment)),
+  marks: Type.Optional(Type.Array(TextMark)),
 });
-export type AddChatMessageRequest = Static<typeof AddChatMessageRequest>;
+export type AddChatMessageBody = Static<typeof AddChatMessageBody>;
+
+export const EditChatMessageBody = Type.Object({
+  text: Type.String({ minLength: 1 }),
+  style: Type.Optional(Type.String()),
+  attachments: Type.Optional(Type.Array(ChatAttachment)),
+  marks: Type.Optional(Type.Array(TextMark)),
+});
+export type EditChatMessageBody = Static<typeof EditChatMessageBody>;
+
+export const ToggleMessageReactionBody = Type.Object({
+  emoji: Type.String({ minLength: 1 }),
+});
+export type ToggleMessageReactionBody = Static<typeof ToggleMessageReactionBody>;
 
 // --- Type Schemas ---
 
@@ -297,16 +333,15 @@ export const TypeResponse = Type.Object(
 );
 export type TypeResponse = Static<typeof TypeResponse>;
 
-export const CreateTypeRequest = Type.Object({
-  space_id: Type.String(),
-  name: Type.String(),
-  plural_name: Type.String(),
+export const CreateTypeBody = Type.Object({
+  name: Type.String({ minLength: 1 }),
+  plural_name: Type.String({ minLength: 1 }),
   layout: ObjectLayout,
   key: Type.Optional(Type.String()),
   icon: Type.Optional(Icon),
   properties: Type.Optional(Type.Array(TypeProperty)),
 });
-export type CreateTypeRequest = Static<typeof CreateTypeRequest>;
+export type CreateTypeBody = Static<typeof CreateTypeBody>;
 
 // --- Object & Search Schemas ---
 
