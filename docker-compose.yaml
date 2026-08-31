@@ -9,7 +9,9 @@ services:
       - "31012:31012"
 
   anytype-agent:
-    build: .
+    build:
+      context: .
+      target: dev
     environment:
       - ANYTYPE_API_URL=${ANYTYPE_API_URL}
       - ANYTYPE_BOT_NAME=${ANYTYPE_BOT_NAME}
@@ -21,7 +23,7 @@ services:
       - HOST_SSH_USER=${HOST_SSH_USER}
       - HOST_SSH_KEY_PATH=${HOST_SSH_KEY_PATH}
       - HOST_CLI_BIN=${HOST_CLI_BIN}
-    # - HOST_SSH_HOST=host.docker.internal
+      # - HOST_SSH_HOST=host.docker.internal
     volumes:
       - ./src:/app/src
       - ~/.ssh/id_ed25519:/keys/id_ed25519:ro
