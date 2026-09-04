@@ -12,7 +12,7 @@ export abstract class AbstractLlmService {
    * Stream invariant: exactly one LlmResponse as the final element, followed by complete.
    * Intermediate events are LlmAction (progress); errors are emitted through the error channel.
    */
-  abstract run(spaceId: string, payload: object): Observable<LlmEvent>;
+  abstract run(spaceId: string, payload: object, abort: AbortSignal): Observable<LlmEvent>;
 }
 
 export class LlmAction {
@@ -34,3 +34,10 @@ export class LlmResponse {
 }
 
 export type LlmEvent = LlmAction | LlmResponse;
+
+export class LlmEmptyResponseError extends Error {
+  constructor(message = "Empty response from LLM") {
+    super(message);
+    this.name = "LlmEmptyResponseError";
+  }
+}

@@ -12,6 +12,8 @@ export const BaseConfig = Type.Object({
   OBSERVER_DEBOUNCE_MS: Type.Number({ default: 800 }),
   OBSERVER_RETRY_DELAY_MS: Type.Number({ default: 3000 }),
   OBSERVER_SCAN_INTERVAL_MS: Type.Number({ default: 60000 }),
+  // Revolver pool size: max simultaneously observed chats per space (SSE connections are not free).
+  OBSERVER_MAX_ACTIVE_CHATS: Type.Number({ default: 50 }),
 });
 export type BaseConfig = Static<typeof BaseConfig>;
 
