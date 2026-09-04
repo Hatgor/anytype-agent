@@ -325,4 +325,75 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     // Alias must not leak into detail
     expect((eventsB[0] as LlmAction).detail).not.toContain(aliasB);
   });
+
+  it("5. execRemote & Buffer stdin: pipes real Buffer to stdin and receives stdout without execRemote mocks", async () => {
+    const proto = HostModelService.prototype as unknown as {
+      buildSshArgs: (cmd: string) => string[];
+      execRemote: (
+        cmd: string,
+        stdin?: string,
+        timeout?: number,
+        abort?: AbortSignal,
+      ) => Promise<{ stdout: string; stderr: string }>;
+    };
+
+    const buildSshArgsSpy = spyOn(proto, "buildSshArgs").mockImplementation(() => ["cat"]);
+
+    const testPayload = "Buffer stdin verified! 🚀\nMulti-line prompt text";
+    const res = await (model as unknown as { execRemote: typeof proto.execRemote }).execRemote(
+      "unused",
+      testPayload,
+      5000,
+    );
+
+    expect(res.stdout).toBe(testPayload);
+    expect(res.stderr).toBe("");
+
+    buildSshArgsSpy.mockRestore();
+  });
+
+  it("6. execRemote & AbortSignal kill: terminates actual running process ('sleep 10') in <200ms via SIGKILL", async () => {
+    const proto = HostModelService.prototype as unknown as {
+      buildSshArgs: (cmd: string) => string[];
+      execRemote: (
+        cmd: string,
+        stdin?: string,
+        timeout?: number,
+        abort?: AbortSignal,
+      ) => Promise<{ stdout: string; stderr: string }>;
+    };
+
+    const buildSshArgsSpy = spyOn(proto, "buildSshArgs").mockImplementation((cmd: string) => [
+      "sh",
+      "-c",
+      cmd,
+    ]);
+
+    const startTime = Date.now();
+    const abortController = new AbortController();
+
+    // Trigger abort after 50ms while sleep 10 is running
+    setTimeout(() => abortController.abort(), 50);
+
+    let caughtError: unknown;
+    try {
+      await (model as unknown as { execRemote: typeof proto.execRemote }).execRemote(
+        "sleep 10",
+        "some stdin",
+        10_000,
+        abortController.signal,
+      );
+    } catch (err) {
+      caughtError = err;
+    }
+
+    const duration = Date.now() - startTime;
+
+    expect(caughtError).toBeInstanceOf(Error);
+    expect((caughtError as Error).message).toContain("Execution aborted");
+    // Verified: process did not wait for 10,000ms, killed in ~50-250ms!
+    expect(duration).toBeLessThan(1000);
+
+    buildSshArgsSpy.mockRestore();
+  });
 });

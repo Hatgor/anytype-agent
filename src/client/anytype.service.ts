@@ -10,6 +10,7 @@ import {
   type AnytypeType,
   type Chat,
   type ChatMessage,
+  ChatMessageResponse,
   ChatMessagesResponse,
   ChatResponse,
   ChatsResponse,
@@ -33,7 +34,6 @@ import {
 } from "./schema";
 import {
   type ChatEvent,
-  type ChatMessageAdded,
   RawChatMessageAdded,
   RawChatMessageDeleted,
   RawChatMessageUpdated,
@@ -184,6 +184,15 @@ export class AnytypeService {
       `/v1/spaces/${encodeURIComponent(spaceId)}/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}&offset=${offset}`,
     );
     return res.messages;
+  }
+
+  async getChatMessage(spaceId: string, chatId: string, messageId: string): Promise<ChatMessage> {
+    this.log.debug(`Fetching chat message ${messageId} in chat ${chatId}...`);
+    const res = await this.client.get(
+      ChatMessageResponse,
+      `/v1/spaces/${encodeURIComponent(spaceId)}/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`,
+    );
+    return res.message;
   }
 
   subscribeChatMessages(

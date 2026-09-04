@@ -9,6 +9,7 @@
       }
     },
     "TypeScript": {
+      "language_servers": ["!typescript-language-server", "!vtsls", "typescript-ls", "..."],
       "formatter": { "language_server": { "name": "biome" } },
       "code_actions_on_format": {
         "source.fixAll.biome": true,

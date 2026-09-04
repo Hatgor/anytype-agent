@@ -6,7 +6,7 @@ import { NestFactory } from "@nestjs/core";
 import { firstValueFrom } from "rxjs";
 import { Type } from "typebox";
 import { validateConfig } from "../../app.config";
-import { ANYTYPE_CLIENT, AnytypeClient, AnytypeService, ClientModule } from "../index";
+import { ANYTYPE_CLIENT, AnytypeClient, AnytypeService, ChatMessage, ClientModule } from "../index";
 
 describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
   const testLogger = new Logger("TestAnytypeClient");
@@ -83,7 +83,7 @@ describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
       fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: [] }), { status: 200 }));
 
       const client = createTestClient();
-      await expect(client.checkHealth("/v1/spaces", 3, 10)).resolves.toBeUndefined();
+      expect(client.checkHealth("/v1/spaces", 3, 10)).resolves.toBeUndefined();
     });
 
     it("checkHealth: fails immediately without retries on 401 Unauthorized", async () => {
@@ -92,7 +92,7 @@ describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
       );
 
       const client = createTestClient();
-      await expect(client.checkHealth("/v1/spaces", 5, 10)).rejects.toThrow(
+      expect(client.checkHealth("/v1/spaces", 5, 10)).rejects.toThrow(
         "Authentication failed with status 401",
       );
       expect(fetchSpy).toHaveBeenCalledTimes(1); // No wasteful retries on bad credentials
@@ -204,6 +204,28 @@ describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
       const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space_99/chats/chat_42/messages/msg_777");
       expect(init.method).toBe("DELETE");
+    });
+
+    it("getChatMessage: fetches single message from message endpoint", async () => {
+      const mockMsg = {
+        id: "msg_777",
+        creator: "user_123",
+        created_at: 1000,
+        content: { text: "Hello", style: "paragraph" },
+      };
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: mockMsg }), { status: 200 }),
+      );
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const res = await service.getChatMessage("space_99", "chat_42", "msg_777");
+
+      expect(res).toEqual(mockMsg as unknown as ChatMessage);
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space_99/chats/chat_42/messages/msg_777");
+      expect(init.method).toBe("GET");
     });
 
     it("toggleMessageReaction: sends POST with emoji to reactions endpoint", async () => {

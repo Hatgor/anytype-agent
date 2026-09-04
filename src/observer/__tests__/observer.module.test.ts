@@ -106,6 +106,23 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
         });
       }
 
+      if (url.includes("/messages") && method === "GET") {
+        if (url.match(/\/messages\/[^/?]+$/)) {
+          return new Response(
+            JSON.stringify({
+              message: {
+                id: "m_1",
+                creator: "_participant_sp_main_other",
+                created_at: Date.now(),
+                content: { text: "hi", style: "paragraph" },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ messages: [] }), { status: 200 });
+      }
+
       if (url.endsWith("/messages") && method === "POST") {
         const body = typeof init?.body === "string" ? JSON.parse(init.body) : init?.body;
         const spaceId = extractSpaceId(url);
@@ -116,6 +133,10 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
           text: (body as { text: string })?.text,
         });
         return new Response(JSON.stringify({ message_id: "m_1" }), { status: 200 });
+      }
+
+      if (method === "PATCH" || method === "DELETE") {
+        return new Response(JSON.stringify({}), { status: 200 });
       }
 
       if (url.includes("/chats") && method === "GET") {

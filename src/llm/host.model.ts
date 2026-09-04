@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { $ } from "bun";
 import {
   catchError,
   defer,
@@ -48,10 +47,10 @@ export class HostModelService extends AbstractLlmService {
     this.logger.log(`✅ Proxy started`);
   }
 
-  run(spaceId: string, payload: object): Observable<LlmEvent> {
+  run(spaceId: string, payload: object, abort?: AbortSignal): Observable<LlmEvent> {
     const alias = this.proxy.issueSpaceAlias(spaceId);
 
-    const response$ = this.getResponse(payload, alias).pipe(share());
+    const response$ = this.getResponse(payload, alias, abort).pipe(share());
     const done$ = response$.pipe(ignoreElements(), endWith(null));
 
     const traces$: Observable<LlmAction> = this.proxy.traces$.pipe(
@@ -68,8 +67,12 @@ export class HostModelService extends AbstractLlmService {
     ).pipe(finalize(() => this.proxy.revokeSpaceAlias(alias)));
   }
 
-  private getResponse(event: object, spaceAlias: string): Observable<string> {
+  private getResponse(event: object, spaceAlias: string, abort?: AbortSignal): Observable<string> {
     return defer(async () => {
+      if (abort?.aborted) {
+        throw new Error("[HostModel] Execution aborted before start");
+      }
+
       const prompt = buildHostPrompt(
         event,
         this.config.get("ANYTYPE_BOT_NAME"),
@@ -88,7 +91,7 @@ export class HostModelService extends AbstractLlmService {
       // $(cat) — prompt from STDIN without base64 or shell escaping.
       const remoteCommand = `export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"; ${this.cliBin} -p "$(cat)" --dangerously-skip-permissions --disable-slash-commands`;
 
-      const { stdout, stderr } = await this.execRemote(remoteCommand, prompt, 120_000);
+      const { stdout, stderr } = await this.execRemote(remoteCommand, prompt, 120_000, abort);
 
       const trimmed = stdout.trim();
       if (!trimmed) {
@@ -103,32 +106,61 @@ export class HostModelService extends AbstractLlmService {
     });
   }
 
+  protected buildSshArgs(remoteCommand: string): string[] {
+    const sshCreds = `${this.config.get("HOST_SSH_USER")}@${this.config.get("HOST_SSH_HOST")}`;
+    return [
+      "ssh",
+      "-T",
+      "-i",
+      this.config.get("HOST_SSH_KEY_PATH"),
+      "-o",
+      "StrictHostKeyChecking=no",
+      "-o",
+      "UserKnownHostsFile=/dev/null",
+      "-o",
+      "ConnectTimeout=5",
+      "-o",
+      "LogLevel=ERROR",
+      sshCreds,
+      remoteCommand,
+    ];
+  }
+
   private async execRemote(
     remoteCommand: string,
     stdinText?: string,
     timeoutMs = 120_000,
+    abort?: AbortSignal,
   ): Promise<{ stdout: string; stderr: string }> {
-    const sshCreds = `${this.config.get("HOST_SSH_USER")}@${this.config.get("HOST_SSH_HOST")}`;
-    const input = new Response(stdinText ?? "");
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = abort ? AbortSignal.any([abort, timeoutSignal]) : timeoutSignal;
 
-    const runShell = $`ssh -T -i ${this.config.get("HOST_SSH_KEY_PATH")} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR ${sshCreds} ${remoteCommand} < ${input}`;
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error(`[HostModel] Command timed out after ${timeoutMs}ms: ${remoteCommand}`));
-      }, timeoutMs);
+    const proc = Bun.spawn(this.buildSshArgs(remoteCommand), {
+      stdin: Buffer.from(stdinText ?? ""),
+      stdout: "pipe",
+      stderr: "pipe",
+      signal,
+      killSignal: "SIGKILL",
     });
 
     try {
-      const result = await Promise.race([runShell.quiet().nothrow(), timeoutPromise]);
+      const [stdoutText, stderrText, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
 
-      const stdoutText = result.stdout.toString();
-      const stderrText = result.stderr.toString();
+      if (abort?.aborted) {
+        throw new Error("[HostModel] Execution aborted");
+      }
 
-      if (result.exitCode !== 0) {
+      if (timeoutSignal.aborted) {
+        throw new Error(`[HostModel] Command timed out after ${timeoutMs}ms: ${remoteCommand}`);
+      }
+
+      if (exitCode !== 0) {
         throw new Error(
-          `Command failed with exit code ${result.exitCode}:\nSTDERR: ${stderrText}\nSTDOUT: ${stdoutText}`,
+          `Command failed with exit code ${exitCode}:\nSTDERR: ${stderrText}\nSTDOUT: ${stdoutText}`,
         );
       }
 
@@ -140,10 +172,6 @@ export class HostModelService extends AbstractLlmService {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`❌ [HostModel] Exec error: ${msg}`);
       throw err;
-    } finally {
-      if (timer) {
-        clearTimeout(timer);
-      }
     }
   }
 }

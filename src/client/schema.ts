@@ -134,6 +134,19 @@ export type MemberResponse = Static<typeof MemberResponse>;
 
 // --- Chat Schemas ---
 
+// Chat activity property (proof: live GET /chats, Anytype-Version 2025-11-08):
+// { "key": "last_message_date", "format": "date", "date": "2026-09-01T14:49:57Z" }
+// Chats without messages carry only "created_date".
+export const ChatProperty = Type.Object(
+  {
+    key: Type.Optional(Type.String()),
+    format: Type.Optional(Type.String()),
+    date: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  },
+  { additionalProperties: true },
+);
+export type ChatProperty = Static<typeof ChatProperty>;
+
 export const Chat = Type.Object(
   {
     id: Type.String(),
@@ -144,10 +157,23 @@ export const Chat = Type.Object(
     archived: Type.Optional(Type.Boolean()),
     icon: Type.Optional(Type.Union([Icon, Type.Null()])),
     object: Type.Optional(Type.String()),
+    properties: Type.Optional(Type.Array(ChatProperty)),
   },
   { additionalProperties: true },
 );
 export type Chat = Static<typeof Chat>;
+
+/**
+ * Last activity timestamp (ms) of a chat: last_message_date, falling back to
+ * created_date, falling back to 0 (chat sinks to the tail of the activity sort).
+ */
+export const chatActivityTs = (chat: Chat): number => {
+  const prop = (key: string) =>
+    chat.properties?.find((p) => p.key === key)?.date
+      ? Date.parse(chat.properties.find((p) => p.key === key).date as string)
+      : 0;
+  return prop("last_message_date") || prop("created_date");
+};
 
 export const ChatsResponse = Type.Object(
   {
@@ -205,6 +231,14 @@ export const ChatMessagesResponse = Type.Object(
   { additionalProperties: true },
 );
 export type ChatMessagesResponse = Static<typeof ChatMessagesResponse>;
+
+export const ChatMessageResponse = Type.Object(
+  {
+    message: ChatMessage,
+  },
+  { additionalProperties: true },
+);
+export type ChatMessageResponse = Static<typeof ChatMessageResponse>;
 
 export const EmptyResponse = Type.Object({}, { additionalProperties: true });
 export type EmptyResponse = Static<typeof EmptyResponse>;

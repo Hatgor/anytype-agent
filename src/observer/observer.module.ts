@@ -1,18 +1,18 @@
 import { Module } from "@nestjs/common";
 import { ClientModule } from "../client";
 import { LlmModule } from "../llm/llm.module";
-import { ChatObserverFactory } from "./chat.observer";
+import { ChatsObserverFactory } from "./chats.observer";
 import { OBSERVERS } from "./constants";
 import { ObserverService } from "./observer.service";
 
 @Module({
   imports: [ClientModule, LlmModule],
   providers: [
-    ChatObserverFactory,
+    ChatsObserverFactory,
     {
       provide: OBSERVERS,
-      inject: [ChatObserverFactory],
-      useFactory: (chatFactory) => [chatFactory],
+      inject: [ChatsObserverFactory],
+      useFactory: (...args) => args,
     },
     ObserverService,
   ],
