@@ -71,11 +71,9 @@ export class SpaceWorker {
     return interval(pollIntervalMs).pipe(
       switchMap(() =>
         defer(() =>
-          from(
-            this.client.searchSpace(this.context.spaceId, {
-              query,
-            }),
-          ),
+          this.client.searchSpace(this.context.spaceId, {
+            query,
+          }),
         ).pipe(
           catchError((err) => {
             console.error(
@@ -96,7 +94,7 @@ export class SpaceWorker {
         return true;
       }),
       switchMap((obj) =>
-        defer(() => from(this.client.getObject(this.context.spaceId, obj.id, "md"))).pipe(
+        defer(() => this.client.getObject(this.context.spaceId, obj.id, "md")).pipe(
           map((fullObj) => ({
             searchResult: obj,
             object: fullObj,

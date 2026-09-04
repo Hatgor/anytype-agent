@@ -34,3 +34,10 @@ export class LlmResponse {
 }
 
 export type LlmEvent = LlmAction | LlmResponse;
+
+export class LlmEmptyResponseError extends Error {
+  constructor(message = "Empty response from LLM") {
+    super(message);
+    this.name = "LlmEmptyResponseError";
+  }
+}

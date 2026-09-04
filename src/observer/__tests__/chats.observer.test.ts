@@ -17,6 +17,13 @@ describe("ChatsObserver (Unit Tests)", () => {
       getChatMessage?: (spaceId: string, chatId: string, messageId: string) => Promise<ChatMessage>;
       llmHandler?: (spaceId: string, payload: object, abort: AbortSignal) => Observable<LlmEvent>;
       scanIntervalMs?: number;
+      editChatMessage?: (
+        spaceId: string,
+        chatId: string,
+        messageId: string,
+        body: unknown,
+      ) => Promise<unknown>;
+      deleteChatMessage?: (spaceId: string, chatId: string, messageId: string) => Promise<unknown>;
     } = {},
   ) => {
     const sseSubjects = new Map<string, Subject<ChatEvent>>();
@@ -42,8 +49,8 @@ describe("ChatsObserver (Unit Tests)", () => {
       addChatMessage: mock(async (_spaceId: string, _chatId: string, _body: unknown) => ({
         message_id: `prog_${Date.now()}_${Math.random()}`,
       })),
-      editChatMessage: mock(async () => ({})),
-      deleteChatMessage: mock(async () => ({})),
+      editChatMessage: mock(options.editChatMessage ?? (async () => ({}))),
+      deleteChatMessage: mock(options.deleteChatMessage ?? (async () => ({}))),
       subscribeChatMessages: mock((_spaceId: string, chatId: string): Observable<ChatEvent> => {
         return defer(() => {
           let sub = sseSubjects.get(chatId);
@@ -493,5 +500,96 @@ describe("ChatsObserver (Unit Tests)", () => {
 
     await waitFor(() => callCount(llmFake.run) === 1);
     expect(callCount(llmFake.run)).toBe(1);
+  });
+
+  it("14. Error handling: LLM error edits progress message with warning and does NOT delete it", async () => {
+    const { ready, pushEvent, anytypeFake } = setup({
+      llmHandler: () =>
+        new Observable((subscriber) => {
+          subscriber.error(new Error("Context window exceeded\nTrace: detailed traceback..."));
+        }),
+    });
+
+    await ready();
+
+    pushEvent("chat.1", {
+      ...makeMessage({ id: "msg_err" }, { mentionBot: "member_test_bot" }),
+      type: "message_added",
+    });
+
+    await waitFor(() => callCount(anytypeFake.editChatMessage) === 1);
+
+    expect(callCount(anytypeFake.addChatMessage)).toBe(1);
+
+    const editArg = callArg<{ text: string; marks: { type: string }[] }>(
+      anytypeFake.editChatMessage,
+      0,
+      3,
+    );
+    expect(editArg.text).toBe("⚠️ Context window exceeded");
+    expect(editArg.text).not.toContain("Trace"); // sanitizer drops everything after the first line
+    expect(editArg.marks[0]?.type).toBe("italic");
+    expect(callCount(anytypeFake.deleteChatMessage)).toBe(0);
+  });
+
+  it("15. Error fallback: when editChatMessage fails on error, progress message is deleted", async () => {
+    const { ready, pushEvent, anytypeFake } = setup({
+      llmHandler: () =>
+        new Observable((subscriber) => {
+          subscriber.error(new Error("LLM failure"));
+        }),
+      editChatMessage: async () => {
+        throw new Error("Anytype edit endpoint 500");
+      },
+    });
+
+    await ready();
+
+    pushEvent("chat.1", {
+      ...makeMessage({ id: "msg_fallback" }, { mentionBot: "member_test_bot" }),
+      type: "message_added",
+    });
+
+    await waitFor(() => callCount(anytypeFake.deleteChatMessage) === 1);
+    expect(callCount(anytypeFake.deleteChatMessage)).toBe(1);
+  });
+
+  it("16. Empty response: blank LLM response triggers error edit, not hanging working indicator", async () => {
+    const { ready, pushEvent, anytypeFake } = setup({
+      llmHandler: () => of(LlmResponse.create("   ")),
+    });
+
+    await ready();
+
+    pushEvent("chat.1", {
+      ...makeMessage({ id: "msg_empty" }, { mentionBot: "member_test_bot" }),
+      type: "message_added",
+    });
+
+    await waitFor(() => callCount(anytypeFake.editChatMessage) === 1);
+
+    const editArg = callArg<{ text: string }>(anytypeFake.editChatMessage, 0, 3);
+    expect(editArg.text).toContain("⚠️ Empty response from LLM");
+    expect(callCount(anytypeFake.deleteChatMessage)).toBe(0);
+  });
+
+  it("17. Incomplete LLM stream: stream with only LlmActions completing without LlmResponse triggers error edit", async () => {
+    const { ready, pushEvent, anytypeFake } = setup({
+      llmHandler: () => of(LlmAction.create("Thinking...")),
+    });
+
+    await ready();
+
+    pushEvent("chat.1", {
+      ...makeMessage({ id: "msg_incomplete" }, { mentionBot: "member_test_bot" }),
+      type: "message_added",
+    });
+
+    // 1st edit: LlmAction ("Thinking..."), 2nd edit: Error warning ("⚠️ Empty response from LLM")
+    await waitFor(() => callCount(anytypeFake.editChatMessage) === 2);
+
+    const editArg = callArg<{ text: string }>(anytypeFake.editChatMessage, 1, 3);
+    expect(editArg.text).toContain("⚠️ Empty response from LLM");
+    expect(callCount(anytypeFake.deleteChatMessage)).toBe(0);
   });
 });

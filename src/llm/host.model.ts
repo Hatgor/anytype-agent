@@ -17,14 +17,13 @@ import {
 import type { HostConfig } from "../app.config";
 import { AnytypeProxy } from "../client/anytype.proxy";
 import { buildHostPrompt } from "./prompts/host";
-import { AbstractLlmService, LlmAction, type LlmEvent, LlmResponse } from "./types";
-
-export class LlmEmptyResponseError extends Error {
-  constructor(message = "LLM returned empty or whitespace-only response") {
-    super(message);
-    this.name = "LlmEmptyResponseError";
-  }
-}
+import {
+  AbstractLlmService,
+  LlmAction,
+  LlmEmptyResponseError,
+  type LlmEvent,
+  LlmResponse,
+} from "./types";
 
 @Injectable()
 export class HostModelService extends AbstractLlmService {
@@ -48,23 +47,25 @@ export class HostModelService extends AbstractLlmService {
   }
 
   run(spaceId: string, payload: object, abort?: AbortSignal): Observable<LlmEvent> {
-    const alias = this.proxy.issueSpaceAlias(spaceId);
+    return defer(() => {
+      const alias = this.proxy.issueSpaceAlias(spaceId);
 
-    const response$ = this.getResponse(payload, alias, abort).pipe(share());
-    const done$ = response$.pipe(ignoreElements(), endWith(null));
+      const response$ = this.getResponse(payload, alias, abort).pipe(share());
+      const done$ = response$.pipe(ignoreElements(), endWith(null));
 
-    const traces$: Observable<LlmAction> = this.proxy.traces$.pipe(
-      filter((t) => t.alias === alias),
-      map((t) => LlmAction.create(`${t.method} ${t.path.split(alias)[1] || "/"} → ${t.status}`)),
-      catchError(() => EMPTY), // telemetry errors do not crash the job
-      takeUntil(done$), // response received → stop telemetry
-    );
+      const traces$: Observable<LlmAction> = this.proxy.traces$.pipe(
+        filter((t) => t.alias === alias),
+        map((t) => LlmAction.create(`${t.method} ${t.path.split(alias)[1] || "/"} → ${t.status}`)),
+        catchError(() => EMPTY), // telemetry errors do not crash the job
+        takeUntil(done$), // response received → stop telemetry
+      );
 
-    return merge(
-      traces$,
-      response$.pipe(map((text) => LlmResponse.create(text))),
-      // keep multiline
-    ).pipe(finalize(() => this.proxy.revokeSpaceAlias(alias)));
+      return merge(
+        traces$,
+        response$.pipe(map((text) => LlmResponse.create(text))),
+        // keep multiline
+      ).pipe(finalize(() => this.proxy.revokeSpaceAlias(alias)));
+    });
   }
 
   private getResponse(event: object, spaceAlias: string, abort?: AbortSignal): Observable<string> {
