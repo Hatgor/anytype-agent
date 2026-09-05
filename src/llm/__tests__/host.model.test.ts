@@ -366,7 +366,7 @@ describe("HostModelService.run (RxJS Composition & Guards)", () => {
     const buildSshArgsSpy = spyOn(proto, "buildSshArgs").mockImplementation((cmd: string) => [
       "sh",
       "-c",
-      cmd,
+      `exec ${cmd}`,
     ]);
 
     const startTime = Date.now();

@@ -144,20 +144,33 @@ export class HostModelService extends AbstractLlmService {
       killSignal: "SIGKILL",
     });
 
+    const abortPromise = new Promise<never>((_, reject) => {
+      const onAbort = () => {
+        reject(
+          new Error(
+            abort?.aborted
+              ? "[HostModel] Execution aborted"
+              : `[HostModel] Command timed out after ${timeoutMs}ms: ${remoteCommand}`,
+          ),
+        );
+      };
+
+      if (signal.aborted) {
+        onAbort();
+      } else {
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+
     try {
-      const [stdoutText, stderrText, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
+      const [stdoutText, stderrText, exitCode] = await Promise.race([
+        Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]),
+        abortPromise,
       ]);
-
-      if (abort?.aborted) {
-        throw new Error("[HostModel] Execution aborted");
-      }
-
-      if (timeoutSignal.aborted) {
-        throw new Error(`[HostModel] Command timed out after ${timeoutMs}ms: ${remoteCommand}`);
-      }
 
       if (exitCode !== 0) {
         throw new Error(
