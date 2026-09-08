@@ -15,6 +15,7 @@ import {
   ChatResponse,
   ChatsResponse,
   type CreateChatBody,
+  type CreateObjectRequest,
   type CreateTypeBody,
   type EditChatMessageBody,
   EmptyResponse,
@@ -31,6 +32,7 @@ import {
   type ToggleMessageReactionBody,
   TypeResponse,
   TypesResponse,
+  type UpdateObjectRequest,
 } from "./schema";
 import {
   type ChatEvent,
@@ -262,6 +264,46 @@ export class AnytypeService {
     const res = await this.client.get(
       ObjectResponse,
       `/v1/spaces/${encodeURIComponent(spaceId)}/objects/${encodeURIComponent(objectId)}?format=${format}`,
+    );
+    return res.object;
+  }
+
+  async listObjects(
+    spaceId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<AnytypeObject[]> {
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+    this.log.debug(`Listing objects in space ${spaceId} (limit: ${limit}, offset: ${offset})...`);
+    const res = await this.client.get(
+      ObjectsResponse,
+      `/v1/spaces/${encodeURIComponent(spaceId)}/objects?limit=${limit}&offset=${offset}`,
+    );
+    return res.data;
+  }
+
+  async createObject(spaceId: string, body: CreateObjectRequest): Promise<ObjectWithBody> {
+    this.log.log(
+      `Creating object "${body.name || "Untitled"}" (${body.type_key}) in space ${spaceId}...`,
+    );
+    const res = await this.client.post(
+      ObjectResponse,
+      `/v1/spaces/${encodeURIComponent(spaceId)}/objects`,
+      body,
+    );
+    return res.object;
+  }
+
+  async updateObject(
+    spaceId: string,
+    objectId: string,
+    body: UpdateObjectRequest,
+  ): Promise<ObjectWithBody> {
+    this.log.log(`Updating object ${objectId} in space ${spaceId}...`);
+    const res = await this.client.patch(
+      ObjectResponse,
+      `/v1/spaces/${encodeURIComponent(spaceId)}/objects/${encodeURIComponent(objectId)}`,
+      body,
     );
     return res.object;
   }

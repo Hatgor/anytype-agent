@@ -1,9 +1,9 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import type { ModelMessage } from "ai";
 import {
   catchError,
   concatMap,
-  connect,
   debounceTime,
   defer,
   distinctUntilChanged,
@@ -11,10 +11,7 @@ import {
   exhaustMap,
   filter,
   from,
-  ignoreElements,
-  type MonoTypeOperatorFunction,
   map,
-  merge,
   mergeMap,
   Observable,
   of,
@@ -22,6 +19,7 @@ import {
   scan,
   shareReplay,
   switchMap,
+  takeLast,
   takeUntil,
   tap,
   throwIfEmpty,
@@ -29,23 +27,18 @@ import {
   timer,
 } from "rxjs";
 import type { AppConfig } from "../app.config";
+import type { ChatMessage } from "../client";
 import { AnytypeService } from "../client/anytype.service";
 import type { ChatMessageAdded } from "../client/types";
-import { LLM_SERVICE } from "../llm/llm.module";
-import {
-  type AbstractLlmService,
-  LlmAction,
-  LlmEmptyResponseError,
-  type LlmEvent,
-  LlmResponse,
-} from "../llm/types";
+import { LlmService } from "../llm/llm.service";
+import { LlmEmptyResponseError } from "../llm/types";
 import { AbstractObserver, type ObserverFactory } from "./types";
 
 @Injectable()
 export class ChatsObserverFactory implements ObserverFactory {
   constructor(
     private readonly anytype: AnytypeService,
-    @Inject(LLM_SERVICE) private readonly llm: AbstractLlmService,
+    private readonly llm: LlmService,
     private readonly config: ConfigService<AppConfig, true>,
   ) {}
 
@@ -60,6 +53,12 @@ const PROGRESS_POST_TIMEOUT_MS = 5_000;
 const PROGRESS_RETRY_DELAY_MS = 1_000;
 const SAFE_HTTP_TIMEOUT_MS = 15_000;
 
+interface LlmRunState {
+  messages: ModelMessage[];
+  finalText: string;
+  progressText: string | null;
+}
+
 type ChatIntent =
   | { type: "trigger"; msg: ChatMessageAdded }
   | { type: "bot_reply"; replyToId?: string }
@@ -70,7 +69,7 @@ export class ChatsObserver extends AbstractObserver {
     private readonly spaceId: string,
     private readonly botMemberId: string,
     private readonly anytype: AnytypeService,
-    private readonly llm: AbstractLlmService,
+    private readonly llm: LlmService,
     private readonly config: ConfigService<AppConfig, true>,
   ) {
     super();
@@ -144,34 +143,19 @@ export class ChatsObserver extends AbstractObserver {
     this.logger.log(`💬 Generating LLM response for chat ${chatId}...`);
 
     return this.createProgressMessage(chatId, msg.id).pipe(
-      switchMap((progressId) => {
-        const abortController = new AbortController();
-
-        return this.preparePayload(spaceId, chatId, msg, progressId).pipe(
-          switchMap(({ payload }) =>
-            this.processLlmRun(
-              spaceId,
-              chatId,
-              payload,
-              progressId,
-              abortController.signal,
-              msg.id,
-            ),
+      switchMap((progressId) =>
+        this.request$(() => this.anytype.getChatMessages(spaceId, chatId)).pipe(
+          switchMap((chatHistory) =>
+            this.processLlmRun(spaceId, chatId, chatHistory, progressId, msg.id),
           ),
-          catchError((err) => {
-            if (!abortController.signal.aborted) abortController.abort();
-
-            return this.handleLlmError(chatId, progressId, err);
-          }),
+          catchError((err) => this.handleLlmError(chatId, progressId, err)),
           tap({
             unsubscribe: () => {
-              if (!abortController.signal.aborted) abortController.abort();
-
               this.deleteProgressMessage(chatId, progressId).subscribe();
             },
           }),
-        );
-      }),
+        ),
+      ),
       catchError((err) => {
         const errMsg = this.sanitizeErrorMessage(err);
         this.logger.error(`❌ Failed to initialize trigger for chat ${chatId}: ${errMsg}`);
@@ -199,29 +183,34 @@ export class ChatsObserver extends AbstractObserver {
   private processLlmRun(
     spaceId: string,
     chatId: string,
-    payload: object,
+    chatHistory: ChatMessage[],
     progressId: string,
-    abort: AbortSignal,
     replyToMessageId?: string,
   ): Observable<unknown> {
-    return this.llm.run(spaceId, payload, abort).pipe(
-      this.requireLlmResponse(),
-      scan<LlmEvent, { event: LlmEvent; text: string }>(
-        (acc, event) => {
-          if (event instanceof LlmAction) {
-            const text = acc.text ? `${acc.text}\n${event.detail}` : event.detail;
-            return { event, text };
-          }
-          return { event, text: acc.text };
-        },
-        { event: null as unknown as LlmEvent, text: INITIAL_PROGRESS_TEXT },
+    return this.llm.run(spaceId, chatId, this.botMemberId, chatHistory).pipe(
+      scan<ModelMessage, LlmRunState>(
+        (acc, msg) => ({
+          messages: [...acc.messages, msg],
+          finalText:
+            msg.role === "assistant" && typeof msg.content === "string"
+              ? msg.content
+              : acc.finalText,
+          progressText: this.formatStepProgress(msg),
+        }),
+        { messages: [], finalText: "", progressText: null },
       ),
-      filter((state) => state.event !== null),
-      concatMap(({ event, text }) => {
-        if (event instanceof LlmAction)
-          return this.editProgressMessage(chatId, progressId, text).pipe(catchError(() => EMPTY));
+      concatMap((state) => {
+        if (!state.progressText) return of(state);
 
-        const trimmed = event.text.trim();
+        return this.editProgressMessage(chatId, progressId, state.progressText).pipe(
+          catchError(() => of(null)),
+          map(() => state),
+        );
+      }),
+      takeLast(1),
+      throwIfEmpty(() => new LlmEmptyResponseError()),
+      concatMap(({ messages, finalText }) => {
+        const trimmed = finalText.trim();
         if (!trimmed) throw new LlmEmptyResponseError();
 
         return this.request$(() =>
@@ -229,22 +218,32 @@ export class ChatsObserver extends AbstractObserver {
             text: trimmed,
             reply_to_message_id: replyToMessageId,
           }),
-        ).pipe(concatMap(() => this.deleteProgressMessage(chatId, progressId)));
+        ).pipe(
+          concatMap((createdMsg) => {
+            this.llm.save(spaceId, chatId, createdMsg.message_id, messages);
+            return this.deleteProgressMessage(chatId, progressId);
+          }),
+        );
       }),
     );
   }
 
-  private requireLlmResponse(): MonoTypeOperatorFunction<LlmEvent> {
-    return connect((shared$) =>
-      merge(
-        shared$,
-        shared$.pipe(
-          filter((e) => e instanceof LlmResponse),
-          throwIfEmpty(() => new LlmEmptyResponseError()),
-          ignoreElements(),
-        ),
-      ),
-    );
+  private formatStepProgress(msg: ModelMessage): string | null {
+    if (msg.role === "assistant" && Array.isArray(msg.content)) {
+      const toolCall = msg.content.find((p) => p.type === "tool-call");
+      if (toolCall && toolCall.type === "tool-call") {
+        return `⚙️ Running: ${toolCall.toolName}...`;
+      }
+    }
+
+    if (msg.role === "tool" && Array.isArray(msg.content)) {
+      const toolResult = msg.content.find((p) => p.type === "tool-result");
+      if (toolResult && toolResult.type === "tool-result") {
+        return `📥 Received: ${toolResult.toolName}`;
+      }
+    }
+
+    return null;
   }
 
   private request$<T>(
@@ -296,17 +295,6 @@ export class ChatsObserver extends AbstractObserver {
     ).pipe(
       map(() => void 0),
       catchError(() => EMPTY),
-    );
-  }
-
-  private preparePayload(
-    spaceId: string,
-    chatId: string,
-    msg: ChatMessageAdded,
-    progressId: string,
-  ) {
-    return this.request$(() => this.anytype.getChatMessages(spaceId, chatId)).pipe(
-      map((history) => ({ payload: { history, msg }, progressId })),
     );
   }
 

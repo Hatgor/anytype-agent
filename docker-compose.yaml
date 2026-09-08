@@ -18,12 +18,12 @@ services:
       - ANYTYPE_API_KEY=${ANYTYPE_API_KEY}
 
       # Host SSH + AGY
-      # LLM_MODE=host requires HOST_SSH_USER, HOST_SSH_KEY_PATH, HOST_CLI_BIN
-      - LLM_MODE=host
+      # LLM_MODE=cli requires HOST_SSH_USER, HOST_SSH_KEY_PATH, HOST_CLI_BIN
+      - LLM_MODE=cli
       - HOST_SSH_USER=${HOST_SSH_USER}
       - HOST_SSH_KEY_PATH=${HOST_SSH_KEY_PATH}
       - HOST_CLI_BIN=${HOST_CLI_BIN}
-      # - HOST_SSH_HOST=host.docker.internal
+    # - HOST_SSH_HOST=host.docker.internal
     volumes:
       - ./src:/app/src
       - ~/.ssh/id_ed25519:/keys/id_ed25519:ro

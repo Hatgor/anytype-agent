@@ -1,16 +1,23 @@
-export function buildHostPrompt(
-  payload: object,
+import { Injectable, Logger } from "@nestjs/common";
+import type { ModelMessage } from "ai";
+import type { Observable } from "rxjs";
+
+@Injectable()
+export abstract class AbstractLlmCli {
+  protected readonly logger = new Logger(this.constructor.name);
+
+  abstract exec(messages: ModelMessage[]): Observable<ModelMessage>;
+}
+
+export function buildSystemMessage(
   botName: string,
   proxyUrl: string,
   docs: string,
   spaceAlias: string,
-): string {
-  return `You are the AI assistant "${botName}" in Anytype.
-
-Received system event:
-\`\`\`json
-${JSON.stringify(payload, null, 2)}
-\`\`\`
+): ModelMessage {
+  return {
+    role: "system",
+    content: `You are the AI assistant "${botName}" in Anytype.
 
 Instructions for interacting with Anytype:
 - To read or modify data, use the local REST API proxy: ${proxyUrl}
@@ -24,5 +31,6 @@ Communication & Language Guidelines:
 - Formulate a helpful, structured, and clear response.
 - Never show the user SPACE ID;
 - Do not use Markdown in your responses.
-`;
+`,
+  };
 }

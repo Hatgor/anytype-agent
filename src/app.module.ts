@@ -17,7 +17,7 @@ import { ObserverModule } from "./observer/observer.module";
     }),
     ClientModule,
     ObserverModule,
-    LlmModule,
+    LlmModule.register(),
   ],
 })
 export class AppModule {}

@@ -1,18 +1,12 @@
-import { Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
+import type { ModelMessage } from "ai";
 import type { Observable } from "rxjs";
-export abstract class AbstractLlmService {
+
+@Injectable()
+export abstract class AbstractLlmProvider {
   protected readonly logger = new Logger(this.constructor.name);
 
-  /**
-   * Provider initialization (SSH, keys, CLI) on startup — fast fail on invalid config.
-   */
-  abstract init(): Promise<void>;
-
-  /**
-   * Stream invariant: exactly one LlmResponse as the final element, followed by complete.
-   * Intermediate events are LlmAction (progress); errors are emitted through the error channel.
-   */
-  abstract run(spaceId: string, payload: object, abort: AbortSignal): Observable<LlmEvent>;
+  abstract run(spaceId: string, history: ModelMessage[]): Observable<ModelMessage>;
 }
 
 export class LlmAction {

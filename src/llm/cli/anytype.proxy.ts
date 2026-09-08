@@ -1,0 +1,161 @@
+import { randomInt } from "node:crypto";
+import { Injectable, Logger, type OnModuleDestroy, type Provider } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import {
+  catchError,
+  firstValueFrom,
+  from,
+  map,
+  Observable,
+  of,
+  Subject,
+  switchMap,
+  tap,
+} from "rxjs";
+import type { HostConfig } from "../../app.config";
+import { AnytypeClient } from "../../client";
+import { ANYTYPE_CLIENT } from "../../client/client.constants";
+import { SPACE_ROUTES_DOC } from "./routes";
+
+export type ProxyTrace = {
+  alias: string;
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+  error?: string;
+};
+
+@Injectable()
+export class AnytypeProxy implements OnModuleDestroy {
+  private server: ReturnType<typeof Bun.serve>;
+  private readonly spaceAliases = new Map<string, string>();
+  private readonly ALIAS_REGEX = /^\/v1\/spaces\/(\d{6})(\/.*)?$/;
+
+  readonly routesDoc = SPACE_ROUTES_DOC;
+  readonly traces$ = new Subject<ProxyTrace>();
+
+  constructor(
+    private readonly logger: Logger,
+    private readonly config: ConfigService<HostConfig, true>,
+    private readonly client: AnytypeClient,
+  ) {
+    const port = this.config.get("HOST_PROXY_PORT");
+    const targetUrl = this.config.get("ANYTYPE_API_URL");
+
+    this.server = Bun.serve({
+      port,
+      fetch: (req) => firstValueFrom(this.proxyRequest$(req)),
+    });
+
+    this.logger.log(`🚀 Started reverse proxy on http://127.0.0.1:${port} -> ${targetUrl}`);
+  }
+
+  onModuleDestroy(): void {
+    this.server.stop(true);
+    this.logger.log(`🛑 Reverse proxy stopped`);
+  }
+
+  private parseAlias(pathname: string): string | null {
+    const match = this.ALIAS_REGEX.exec(pathname);
+    return match?.[1] ?? null;
+  }
+
+  private proxyRequest$(req: Request): Observable<Response> {
+    return of({ req, startTime: performance.now() }).pipe(
+      map(({ req, startTime }) => {
+        const url = new URL(req.url);
+        const alias = this.parseAlias(url.pathname);
+        const spaceId = alias ? this.spaceAliases.get(alias) : null;
+
+        if (!alias || !spaceId) {
+          throw this.NOT_FOUND;
+        }
+
+        const targetUrl = `${url.pathname.replace(alias, spaceId)}${url.search}`;
+
+        return { req, alias, targetUrl, startTime };
+      }),
+      switchMap((ctx) => {
+        const {
+          req: { method, body },
+          targetUrl,
+        } = ctx;
+
+        return from(this.client.requestRaw(targetUrl, { method, body })).pipe(
+          map((res) => ({ ...ctx, res })),
+        );
+      }),
+      tap(({ alias, req, res, startTime }) => {
+        this.traces$.next({
+          alias,
+          method: req.method,
+          path: new URL(req.url).pathname,
+          status: res.status,
+          durationMs: performance.now() - startTime,
+        });
+      }),
+      map(({ res }) => res),
+      catchError((err) => {
+        if (err instanceof Response) {
+          this.logger.warn(
+            `⚠️ Proxy rejected [${err.status}]: ${req.method} ${new URL(req.url).pathname}`,
+          );
+          return of(err);
+        }
+
+        this.logger.error(`❌ Proxy error: ${err instanceof Error ? err.message : String(err)}`);
+        return of(new Response(null, { status: 500 }));
+      }),
+    );
+  }
+
+  /**
+   * Issues a 6-digit alias instead of the real spaceId for a single LLM job.
+   *
+   * Lifecycle SSOT: the alias lives strictly for the duration of the run — issued at the start of
+   * run() and revoked via finalize on all exit paths (complete/error/unsubscribe).
+   * TTL is unnecessary and harmful here: a second source of truth for alias expiration
+   * drops long runs with 404s mid-work. SpaceId (aliased and real) is not a secret:
+   * useless without an API key, and the agent never bypasses the proxy.
+   */
+  issueSpaceAlias(spaceId: string): string {
+    let alias: string;
+    do {
+      alias = randomInt(100_000, 1_000_000).toString();
+    } while (this.spaceAliases.has(alias));
+
+    this.spaceAliases.set(alias, spaceId);
+    return alias;
+  }
+
+  revokeSpaceAlias(alias: string): void {
+    this.spaceAliases.delete(alias);
+  }
+
+  private get NOT_FOUND(): Response {
+    return new Response(JSON.stringify({ error: "not found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  static forRoot(): Provider {
+    return {
+      provide: AnytypeProxy,
+      inject: [ConfigService, ANYTYPE_CLIENT],
+      useFactory: (config: ConfigService<HostConfig, true>, client: AnytypeClient) => {
+        const logger = new Logger(AnytypeProxy.name);
+        const port = config.get("HOST_PROXY_PORT");
+
+        try {
+          return new AnytypeProxy(logger, config, client);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.error(`❌ Failed to start proxy on port ${port}: ${msg}`);
+          throw err;
+        }
+      },
+    };
+  }
+}

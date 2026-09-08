@@ -1,8 +1,6 @@
 import { Logger } from "@nestjs/common";
 import { type Observable, Subject } from "rxjs";
 
-export type AgentEvent = any;
-
 export interface ObserverFactory {
   /**
    * @param botMemberId identity from members API; in the wire form of creator/mention param this is

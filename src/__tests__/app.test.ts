@@ -8,26 +8,21 @@ describe("AppModule & Standalone Bootstrap", () => {
   let fetchSpy: ReturnType<typeof spyOn>;
   const originalEnv = { ...process.env };
 
-  let initSpy: ReturnType<typeof spyOn>;
-
   beforeAll(async () => {
     process.env.ANYTYPE_API_URL = "http://127.0.0.1:31012";
     process.env.ANYTYPE_BOT_NAME = "NestBot";
     process.env.ANYTYPE_API_KEY = "nest_key_999";
-    process.env.LLM_MODE = "host";
+    process.env.LLM_MODE = "cli";
     process.env.HOST_SSH_USER = "testuser";
     process.env.HOST_SSH_KEY_PATH = "/keys/id_ed25519";
     process.env.HOST_CLI_BIN = "claude";
     fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ data: [] }), { status: 200 }),
     );
-    const { HostModelService } = await import("../llm/host.model");
-    initSpy = spyOn(HostModelService.prototype, "init").mockResolvedValue();
   });
 
   afterAll(() => {
     fetchSpy?.mockRestore();
-    initSpy?.mockRestore();
     process.env = originalEnv;
   });
 
@@ -36,7 +31,7 @@ describe("AppModule & Standalone Bootstrap", () => {
       ANYTYPE_API_URL: "http://127.0.0.1:31012",
       ANYTYPE_BOT_NAME: "DevBot",
       ANYTYPE_API_KEY: "secret_token",
-      LLM_MODE: "host",
+      LLM_MODE: "cli",
       HOST_SSH_USER: "testuser",
       HOST_SSH_KEY_PATH: "/keys/id_ed25519",
       HOST_CLI_BIN: "claude",

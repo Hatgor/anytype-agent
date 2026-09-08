@@ -1,11 +1,12 @@
 import "reflect-metadata";
 import { describe, expect, it, mock } from "bun:test";
 import { type ConfigService } from "@nestjs/config";
+import type { ModelMessage } from "ai";
 import { defer, Observable, of, Subject } from "rxjs";
 import type { AppConfig } from "../../app.config";
 import type { AnytypeService, Chat } from "../../client";
-import type { ChatEvent, ChatMessage } from "../../client/types";
-import { type AbstractLlmService, LlmAction, type LlmEvent, LlmResponse } from "../../llm/types";
+import type { ChatEvent, ChatMessage, ChatMessageAdded } from "../../client/types";
+import { LlmService } from "../../llm/llm.service";
 import { ChatsObserver, ChatsObserverFactory } from "../chats.observer";
 import { callArg, callCount, makeMessage, sleep, waitFor } from "./helpers";
 
@@ -15,7 +16,12 @@ describe("ChatsObserver (Unit Tests)", () => {
       getChats?: () => Promise<Chat[]>;
       getChatMessages?: (spaceId: string, chatId: string) => Promise<ChatMessage[]>;
       getChatMessage?: (spaceId: string, chatId: string, messageId: string) => Promise<ChatMessage>;
-      llmHandler?: (spaceId: string, payload: object, abort: AbortSignal) => Observable<LlmEvent>;
+      llmHandler?: (
+        spaceId: string,
+        chatId: string,
+        botId: string,
+        messages: ChatMessageAdded[],
+      ) => Observable<ModelMessage>;
       scanIntervalMs?: number;
       editChatMessage?: (
         spaceId: string,
@@ -64,9 +70,12 @@ describe("ChatsObserver (Unit Tests)", () => {
     } as unknown as AnytypeService;
 
     const llmFake = {
-      init: mock(async () => {}),
-      run: mock(options.llmHandler ?? (() => of(LlmResponse.create("  Bot reply  ")))),
-    } as unknown as AbstractLlmService;
+      run: mock(
+        options.llmHandler ??
+          (() => of({ role: "assistant", content: "  Bot reply  " } as ModelMessage)),
+      ),
+      save: mock(() => {}),
+    } as unknown as LlmService;
 
     const configMock = {
       get: (key: string) => {
@@ -225,24 +234,26 @@ describe("ChatsObserver (Unit Tests)", () => {
     expect(callCount(llmFake.run)).toBe(0);
   });
 
-  it("6. Preemption: new mention in same chat cancels in-flight LLM via abort signal", async () => {
-    let abortSignal1: AbortSignal | undefined;
-    let abortSignal2: AbortSignal | undefined;
+  it("6. Preemption: new mention in same chat cancels in-flight LLM via unsubscription", async () => {
+    let unsubscribed1 = false;
+    let started2 = false;
 
     const { ready, pushEvent, llmFake } = setup({
-      llmHandler: (_spaceId, _payload, abort) => {
-        if (!abortSignal1) {
-          abortSignal1 = abort;
-          return new Observable<LlmEvent>((subscriber) => {
+      llmHandler: () => {
+        if (!unsubscribed1 && !started2) {
+          return new Observable<ModelMessage>((subscriber) => {
             const timer = setTimeout(() => {
-              subscriber.next(LlmResponse.create("First reply"));
+              subscriber.next({ role: "assistant", content: "First reply" });
               subscriber.complete();
             }, 500);
-            return () => clearTimeout(timer);
+            return () => {
+              clearTimeout(timer);
+              unsubscribed1 = true;
+            };
           });
         }
-        abortSignal2 = abort;
-        return of(LlmResponse.create("Second reply"));
+        started2 = true;
+        return of({ role: "assistant", content: "Second reply" });
       },
     });
 
@@ -254,8 +265,7 @@ describe("ChatsObserver (Unit Tests)", () => {
       type: "message_added",
     });
 
-    await waitFor(() => Boolean(abortSignal1));
-    expect(abortSignal1?.aborted).toBe(false);
+    await sleep(20);
 
     // Second trigger in same chat (preempts first)
     pushEvent("chat.1", {
@@ -263,19 +273,42 @@ describe("ChatsObserver (Unit Tests)", () => {
       type: "message_added",
     });
 
-    await waitFor(() => Boolean(abortSignal2));
+    await waitFor(() => unsubscribed1 && started2);
 
-    expect(abortSignal1?.aborted).toBe(true);
+    expect(unsubscribed1).toBe(true);
     expect(callCount(llmFake.run)).toBe(2);
   });
 
-  it("7. LlmAction Streaming: intermediate actions edit progress message with italic marks", async () => {
+  it("7. Step progress streaming: intermediate tool actions edit progress message with italic marks", async () => {
     const { ready, pushEvent, anytypeFake } = setup({
       llmHandler: () =>
         of(
-          LlmAction.create("Tool 1 called"),
-          LlmAction.create("Tool 2 called"),
-          LlmResponse.create("Final output"),
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call_1",
+                toolName: "read_file",
+                input: {},
+              },
+            ],
+          } as ModelMessage,
+          {
+            role: "tool",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call_1",
+                toolName: "read_file",
+                output: { type: "text", value: "ok" },
+              },
+            ],
+          } as ModelMessage,
+          {
+            role: "assistant",
+            content: "Final output",
+          } as ModelMessage,
         ),
     });
 
@@ -294,14 +327,14 @@ describe("ChatsObserver (Unit Tests)", () => {
       0,
       3,
     );
-    expect(firstEdit.text).toContain("Tool 1 called");
+    expect(firstEdit.text).toContain("Running: read_file");
     expect(firstEdit.marks[0]?.type).toBe("italic");
   });
 
   it("8. ChatsObserverFactory: creates instance implementing ObserverFactory", () => {
     const factory = new ChatsObserverFactory(
       {} as AnytypeService,
-      {} as AbstractLlmService,
+      {} as LlmService,
       {} as ConfigService<AppConfig, true>,
     );
 
@@ -338,7 +371,7 @@ describe("ChatsObserver (Unit Tests)", () => {
   });
 
   it("10. Live Burst: second mention replaces first pending trigger, running LLM only for the latest", async () => {
-    const { ready, pushEvent, llmFake } = setup();
+    const { ready, pushEvent, anytypeFake, llmFake } = setup();
 
     await ready();
 
@@ -363,8 +396,12 @@ describe("ChatsObserver (Unit Tests)", () => {
     await waitFor(() => callCount(llmFake.run) === 1);
 
     expect(callCount(llmFake.run)).toBe(1);
-    const payloadArg = callArg<{ msg: { id: string } }>(llmFake.run, 0, 1);
-    expect(payloadArg.msg.id).toBe("burst_2");
+    const progressPost = callArg<{ text: string; reply_to_message_id?: string }>(
+      anytypeFake.addChatMessage,
+      0,
+      2,
+    );
+    expect(progressPost.reply_to_message_id).toBe("burst_2");
   });
 
   it("11. Positive Backfill: unanswered mention in replay burst triggers LLM after debounce window", async () => {
@@ -418,8 +455,6 @@ describe("ChatsObserver (Unit Tests)", () => {
     await waitFor(() => callCount(llmFake.run) === 1);
 
     expect(callCount(llmFake.run)).toBe(1);
-    const payloadArg = callArg<{ msg: { id: string } }>(llmFake.run, 0, 1);
-    expect(payloadArg.msg.id).toBe("hist_unanswered");
 
     // Check that reply_to_message_id links back to the unanswered question
     const progressPost = callArg<{ text: string; reply_to_message_id?: string }>(
@@ -556,7 +591,7 @@ describe("ChatsObserver (Unit Tests)", () => {
 
   it("16. Empty response: blank LLM response triggers error edit, not hanging working indicator", async () => {
     const { ready, pushEvent, anytypeFake } = setup({
-      llmHandler: () => of(LlmResponse.create("   ")),
+      llmHandler: () => of({ role: "assistant", content: "   " } as ModelMessage),
     });
 
     await ready();
@@ -573,9 +608,20 @@ describe("ChatsObserver (Unit Tests)", () => {
     expect(callCount(anytypeFake.deleteChatMessage)).toBe(0);
   });
 
-  it("17. Incomplete LLM stream: stream with only LlmActions completing without LlmResponse triggers error edit", async () => {
+  it("17. Incomplete LLM stream: stream with only tool actions completing without final text triggers error edit", async () => {
     const { ready, pushEvent, anytypeFake } = setup({
-      llmHandler: () => of(LlmAction.create("Thinking...")),
+      llmHandler: () =>
+        of({
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call_incomplete",
+              toolName: "thinking",
+              input: {},
+            },
+          ],
+        } as ModelMessage),
     });
 
     await ready();
@@ -585,7 +631,7 @@ describe("ChatsObserver (Unit Tests)", () => {
       type: "message_added",
     });
 
-    // 1st edit: LlmAction ("Thinking..."), 2nd edit: Error warning ("⚠️ Empty response from LLM")
+    // 1st edit: tool-call progress ("⚙️ Running: thinking..."), 2nd edit: Error warning ("⚠️ Empty response from LLM")
     await waitFor(() => callCount(anytypeFake.editChatMessage) === 2);
 
     const editArg = callArg<{ text: string }>(anytypeFake.editChatMessage, 1, 3);

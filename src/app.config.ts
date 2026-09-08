@@ -21,7 +21,7 @@ export type BaseConfig = Static<typeof BaseConfig>;
 export const HostConfig = Type.Intersect([
   BaseConfig,
   Type.Object({
-    LLM_MODE: Type.Literal("host"),
+    LLM_MODE: Type.Literal("cli"),
     HOST_SSH_USER: Type.String({ minLength: 1 }),
     HOST_SSH_KEY_PATH: Type.String({ minLength: 1 }),
     HOST_CLI_BIN: Type.String({ minLength: 1 }),

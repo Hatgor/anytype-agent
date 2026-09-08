@@ -15,6 +15,6 @@ import { ANYTYPE_CLIENT } from "./client.constants";
     AnytypeService,
     AnytypeProxy,
   ],
-  exports: [AnytypeService, AnytypeProxy],
+  exports: [ANYTYPE_CLIENT, AnytypeService, AnytypeProxy],
 })
 export class ClientModule {}

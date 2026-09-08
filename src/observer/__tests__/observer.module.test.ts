@@ -4,8 +4,8 @@ import { ConfigModule } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { of } from "rxjs";
 import { validateConfig } from "../../app.config";
-import { HostModelService } from "../../llm/host.model";
-import { LlmResponse } from "../../llm/types";
+import { LlmModule } from "../../llm/llm.module";
+import { LlmService } from "../../llm/llm.service";
 import { ObserverModule } from "../observer.module";
 import { ObserverService } from "../observer.service";
 import {
@@ -24,7 +24,6 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
   let observerService: ObserverService;
   let internals: ObserverServiceInternals;
 
-  let initSpy: ReturnType<typeof spyOn>;
   let runSpy: ReturnType<typeof spyOn>;
   let fetchSpy: ReturnType<typeof spyOn>;
 
@@ -51,7 +50,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     process.env.ANYTYPE_API_URL = "http://127.0.0.1:31012";
     process.env.ANYTYPE_BOT_NAME = "TestBot";
     process.env.ANYTYPE_API_KEY = "secret_key_123";
-    process.env.LLM_MODE = "host";
+    process.env.LLM_MODE = "cli";
     process.env.HOST_SSH_USER = "testuser";
     process.env.HOST_SSH_KEY_PATH = "/keys/id_ed25519";
     process.env.HOST_CLI_BIN = "claude";
@@ -60,9 +59,8 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
     process.env.OBSERVER_SCAN_INTERVAL_MS = "200";
 
     // Mock LLM calls prior to compile() to avoid triggering real SSH/CLI
-    initSpy = spyOn(HostModelService.prototype, "init").mockResolvedValue();
-    runSpy = spyOn(HostModelService.prototype, "run").mockImplementation(() =>
-      of(LlmResponse.create("  Bot reply  ")),
+    runSpy = spyOn(LlmService.prototype, "run").mockImplementation(() =>
+      of({ role: "assistant", content: "  Bot reply  " }),
     );
 
     spacesList = [
@@ -167,6 +165,7 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
           isGlobal: true,
           validate: validateConfig,
         }),
+        LlmModule.register("cli"),
         ObserverModule,
       ],
     }).compile();
@@ -179,7 +178,6 @@ describe("ObserverModule (Integration Tests via Nest Test)", () => {
   afterAll(async () => {
     await testingModule?.close();
     fetchSpy?.mockRestore();
-    initSpy?.mockRestore();
     runSpy?.mockRestore();
     process.env = originalEnv;
   });

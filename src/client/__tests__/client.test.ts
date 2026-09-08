@@ -289,6 +289,88 @@ describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
 
       expect(res).toEqual({});
     });
+
+    it("listObjects: fetches paginated objects list", async () => {
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ id: "obj_1", name: "Doc 1" }],
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const res = await service.listObjects("space_99", { limit: 10, offset: 5 });
+
+      expect(res.length).toBe(1);
+      expect(res[0]?.id).toBe("obj_1");
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space_99/objects?limit=10&offset=5");
+      expect(init.method).toBe("GET");
+    });
+
+    it("createObject: sends POST request with object body", async () => {
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            object: { id: "obj_new", name: "My Note" },
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const res = await service.createObject("space_99", {
+        type_key: "note",
+        name: "My Note",
+        body: "Hello",
+      });
+
+      expect(res.id).toBe("obj_new");
+      expect(res.name).toBe("My Note");
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space_99/objects");
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body as string)).toEqual({
+        type_key: "note",
+        name: "My Note",
+        body: "Hello",
+      });
+    });
+
+    it("updateObject: sends PATCH request with update body", async () => {
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            object: { id: "obj_upd", name: "Updated" },
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const client = createTestClient();
+      const service = new AnytypeService(client);
+
+      const res = await service.updateObject("space_99", "obj_upd", {
+        name: "Updated",
+        markdown: "New content",
+      });
+
+      expect(res.id).toBe("obj_upd");
+      expect(res.name).toBe("Updated");
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://127.0.0.1:31012/v1/spaces/space_99/objects/obj_upd");
+      expect(init.method).toBe("PATCH");
+      expect(JSON.parse(init.body as string)).toEqual({
+        name: "Updated",
+        markdown: "New content",
+      });
+    });
   });
 
   describe("ClientModule DI with Async Factory Provider", () => {
@@ -296,7 +378,7 @@ describe("Anytype Client & Service Layer (Separation of Concerns)", () => {
       process.env.ANYTYPE_API_URL = "http://127.0.0.1:31012";
       process.env.ANYTYPE_BOT_NAME = "Bot";
       process.env.ANYTYPE_API_KEY = "token123";
-      process.env.LLM_MODE = "host";
+      process.env.LLM_MODE = "cli";
       process.env.HOST_SSH_USER = "testuser";
       process.env.HOST_SSH_KEY_PATH = "/keys/id_ed25519";
       process.env.HOST_CLI_BIN = "claude";
