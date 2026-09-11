@@ -2,6 +2,8 @@ services:
   anytype-cli:
     image: ghcr.io/anyproto/anytype-cli:latest
     command: ["serve", "--listen-address", "0.0.0.0:31012"]
+    environment:
+      - ANYTYPE_API_ALLOWED_HOSTS=anytype-cli,anytype-cli:31012
     volumes:
       - ./.anytype/data:/root/.anytype
       - ./.anytype/config:/root/.config/anytype
